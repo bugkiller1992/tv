@@ -1,259 +1,191 @@
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# 123AV短视频 - Fongmi影视App适配爬虫
-# 优化为短视频模式，支持滑动切换
+"""
+123AV.FUN TVBox Spider 源
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+站点结构:
+- 首页: /  → 视频列表, 每页约100个
+- 分页: /page-{n}
+- 详情: /detail/{id}-{slug} → JSON-LD contentUrl 直链 m3u8
+- 搜索: /search?keyword={关键词}
+- 排序: /publish-time/sort-desc, /view-count/sort-desc 等
+- 播放: JSON-LD 直链 m3u8, 无防盗链
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+import re, json, urllib.request, urllib.parse, ssl
 
-import sys
-import re
-import json
-import urllib.parse
-sys.path.append('..')
-from base.spider import Spider
+BASE_URL = "https://123av.fun"
+UA = "Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36"
 
+# 一级分类用排序方式
+TYPE_MAP = {
+    "publish-time": "最新发布",
+    "view-count": "最多播放",
+    "comment-count": "最多评论",
+    "favorite-count": "最多收藏",
+}
 
-class Spider(Spider):
-    def getName(self):
-        return "123AV"
+# 网络
+_has_cs = False
+try:
+    import cloudscraper
+    _scraper = cloudscraper.create_scraper(browser={'browser':'chrome','platform':'android','desktop':False})
+    _has_cs = True
+except Exception:
+    pass
 
-    def init(self, extend=''):
-        self.home_url = 'https://123av.fun'
-        self.ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+def _get(url, timeout=20):
+    if _has_cs:
+        try:
+            resp = _scraper.get(url, timeout=timeout, headers={
+                "User-Agent": UA, "Accept": "text/html,*/*;q=0.8", "Referer": BASE_URL + "/",
+            })
+            return resp.text
+        except Exception:
+            pass
+    try:
+        ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
+        req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "text/html,*/*;q=0.8", "Referer": BASE_URL + "/"})
+        resp = urllib.request.urlopen(req, timeout=timeout, context=ctx)
+        return resp.read().decode("utf-8", errors="replace")
+    except Exception:
+        return ""
 
-    def getDependence(self):
-        return []
+def _fetch_page(path): return _get(BASE_URL + path)
 
-    def isVideoFormat(self, url):
-        return False
+def _extract_vod_cards(html):
+    """提取视频卡片: data-* 属性"""
+    items = []; seen = set()
+    for m in re.finditer(r'<a[^>]*href="/detail/(\d+)[^"]*"[^>]*>(.*?)</a>', html, re.DOTALL):
+        vid = m.group(1)
+        if vid in seen: continue
+        seen.add(vid)
+        inner = m.group(2)
+        # 标题: 从 xwya-video alt 取
+        name = ""
+        alt = re.search(r'alt="([^"]+)"', inner)
+        if alt: name = alt.group(1)
+        if not name:
+            text = re.sub(r'<[^>]+>', '', inner).strip()
+            text = re.sub(r'\s+', ' ', text)
+            name = text[:40]
+        # 图片: data-poster
+        pic = ""
+        poster = re.search(r'data-poster="([^"]+)"', inner)
+        if poster: pic = poster.group(1)
+        if not pic:
+            img = re.search(r'poster="([^"]+)"', inner)
+            if img: pic = img.group(1)
+        items.append({"id": vid, "name": name, "pic": pic})
+    return items
 
-    def manualVideoCheck(self):
-        return False
+def _extract_detail(html):
+    info = {}
+    m = re.search(r'"contentUrl"\s*:\s*"([^"]+)"', html)
+    if m: info["play_url"] = m.group(1)
+    m = re.search(r'"thumbnailUrl"\s*:\s*"([^"]+)"', html)
+    if m: info["pic"] = m.group(1)
+    m = re.search(r'"name"\s*:\s*"([^"]+)"', html)
+    if m: info["name"] = m.group(1)
+    if not info.get("name"):
+        m = re.search(r'<title>([^<]+)</title>', html)
+        if m: info["name"] = m.group(1).replace(" - 123AV.FUN", "").strip()
+    return info
 
-    def homeContent(self, filter):
-        return {
-            'class': [
-                {'type_id': 'publish-time/sort-desc', 'type_name': '最新发布'},
-                {'type_id': 'view-count/sort-desc', 'type_name': '最多播放'},
-                {'type_id': 'comment-count/sort-desc', 'type_name': '最多评论'},
-                {'type_id': 'favorite-count/sort-desc', 'type_name': '最多收藏'},
-                {'type_id': 'explore', 'type_name': '探索发现'},
-                {'type_id': 'list', 'type_name': '排行榜'},
-            ],
-            'filters': {}
-        }
+def _norm_ids(ids):
+    if ids is None: return []
+    if isinstance(ids, str):
+        try: p = json.loads(ids); return [str(x) for x in p] if isinstance(p, list) else [ids.strip()]
+        except: pass
+        return [ids.strip()]
+    if isinstance(ids, (list, tuple)): return [str(i) for i in ids]
+    return [str(ids)]
+
+class Spider:
+    def getDependence(self): return []
+    def init(self, extend=""):
+        self.extend = {}
+        if extend:
+            try: self.extend = json.loads(extend) if isinstance(extend, str) else dict(extend)
+            except: pass
+    def getName(self): return "123AV"
+
+    def homeContent(self, filter=None):
+        return {"class": [{"type_id": tid, "type_name": name} for tid, name in TYPE_MAP.items()], "filters": {}}
 
     def homeVideoContent(self):
-        return self.categoryContent('publish-time/sort-desc', 1, {}, {})
+        html = _fetch_page("/")
+        items = _extract_vod_cards(html)
+        return {"list": [{"vod_id": it["id"], "vod_name": it["name"], "vod_pic": it.get("pic",""), "type_name":"", "vod_remarks":""} for it in items[:50]]}
 
-    def _fetch_html(self, url):
-        try:
-            rsp = self.fetch(url, headers={
-                "User-Agent": self.ua,
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                "Accept-Language": "zh-CN,zh;q=0.9",
-            }, timeout=15)
-            if rsp and hasattr(rsp, 'text') and rsp.text:
-                return rsp.text
-        except Exception as e:
-            print(f'fetch error: {e}')
-        return ''
-
-    def _extract_video_list(self, html):
-        videos = []
-        if not html:
-            return videos
-
-        # 匹配视频卡片
-        card_pattern = re.compile(
-            r'<a\s+([^>]*data-src="https://static\.123av\.fun/[^"]+\.m3u8"[^>]*)>(.*?)</a>',
-            re.S
-        )
-        
-        cards = card_pattern.findall(html)
-        
-        for attrs, content in cards:
-            try:
-                src_match = re.search(r'data-src="(https://static\.123av\.fun/[^"]+\.m3u8)"', attrs)
-                poster_match = re.search(r'data-poster="([^"]*)"', attrs)
-                id_match = re.search(r'data-id="(\d+)"', attrs)
-                dur_match = re.search(r'data-duration="(\d+)"', attrs)
-                
-                title_match = re.search(r'<xwya-video[^>]*alt="([^"]*)"', content)
-                
-                if src_match and id_match:
-                    m3u8_url = src_match.group(1)
-                    vid = id_match.group(1)
-                    poster = poster_match.group(1) if poster_match else ''
-                    duration = dur_match.group(1) if dur_match else '0'
-                    title = title_match.group(1).strip() if title_match else f'视频{vid}'
-                    
-                    dur = int(duration)
-                    if dur >= 3600:
-                        duration_str = f'{dur // 3600}:{(dur % 3600) // 60:02d}:{dur % 60:02d}'
-                    else:
-                        duration_str = f'{dur // 60:02d}:{dur % 60:02d}'
-                    
-                    videos.append({
-                        'vod_id': vid,
-                        'vod_name': title,
-                        'vod_pic': poster,
-                        'vod_remarks': duration_str,
-                    })
-            except Exception as e:
-                continue
-
-        return videos
-
-    def categoryContent(self, tid, page, filter, ext):
-        video_list = []
-        
-        if tid in ('explore', 'list', 'subscribe'):
-            url = f'{self.home_url}/{tid}/page-{page}'
+    def categoryContent(self, tid, pg=1, filter=None, extend=None):
+        pg = int(pg) if pg else 1
+        sort = str(tid)
+        if pg <= 1:
+            path = f"/{sort}/sort-desc"
         else:
-            url = f'{self.home_url}/{tid}/page-{page}'
-        
-        html = self._fetch_html(url)
-        video_list = self._extract_video_list(html)
-
+            path = f"/page-{pg}"
+        html = _fetch_page(path)
+        items = _extract_vod_cards(html)
+        # 检测是否有下一页
+        has_next = f'page-{pg+1}' in html
+        pagecount = pg + 1 if has_next else pg
         return {
-            'list': video_list,
-            'page': int(page),
-            'pagecount': 999,
-            'limit': 20,
-            'total': 999 * 20
+            "list": [{"vod_id": it["id"], "vod_name": it["name"], "vod_pic": it.get("pic",""), "type_name": "", "vod_remarks": ""} for it in items],
+            "page": pg, "pagecount": pagecount, "limit": 50, "total": 0,
         }
 
-    def detailContent(self, did):
-        """视频详情 - 关键修改：返回播放URL让playerContent处理"""
-        video_list = []
+    def detailContent(self, ids):
+        ids = _norm_ids(ids)
+        if not ids: return {"list": []}
+        vid = ids[0]
+        # /detail/{id} 自动重定向到完整 URL
+        html = _fetch_page(f"/detail/{vid}")
+        if not html: return {"list": []}
+        info = _extract_detail(html)
+        return {"list": [{
+            "vod_id": vid, "vod_name": info.get("name", "未知"),
+            "vod_pic": info.get("pic", ""),
+            "type_name": "", "vod_year": "", "vod_area": "", "vod_remarks": "",
+            "vod_actor": "", "vod_director": "", "vod_content": "",
+            "vod_play_from": "在线播放", "vod_play_url": f"正片${vid}",
+        }]}
+
+    def searchContent(self, key, quick=False, pg=1):
         try:
-            vid = did[0]
-            detail_url = f'{self.home_url}/detail/{vid}'
-            html = self._fetch_html(detail_url)
+            kw = urllib.parse.quote(str(key))
+            html = _fetch_page(f"/search?keyword={kw}")
+            items = _extract_vod_cards(html)
+            return {"list": [{"vod_id": it["id"], "vod_name": it["name"], "vod_pic": it.get("pic",""), "type_name": "", "vod_remarks": ""} for it in items[:20]]}
+        except Exception:
+            return {"list": []}
 
-            if html:
-                src_match = re.search(r'data-src="(https://static\.123av\.fun/[^"]+\.m3u8)"', html)
-                poster_match = re.search(r'data-poster="([^"]*)"', html)
-                title_match = re.search(r'<h1[^>]*>([^<]+)</h1>', html)
-                if not title_match:
-                    title_match = re.search(r'property="og:title"\s+content="([^"]*)"', html)
-                if not title_match:
-                    title_match = re.search(r'<xwya-video[^>]*alt="([^"]*)"', html)
-                
-                desc_match = re.search(r'property="og:description"\s+content="([^"]*)"', html)
-                dur_match = re.search(r'data-duration="(\d+)"', html)
-                
-                m3u8_url = src_match.group(1) if src_match else ''
-                vod_pic = poster_match.group(1) if poster_match else ''
-                vod_name = title_match.group(1).strip() if title_match else ''
-                vod_content = desc_match.group(1) if desc_match else ''
-                
-                duration_str = ''
-                if dur_match:
-                    dur = int(dur_match.group(1))
-                    if dur >= 3600:
-                        duration_str = f'{dur // 3600}:{(dur % 3600) // 60:02d}:{dur % 60:02d}'
-                    else:
-                        duration_str = f'{dur // 60:02d}:{dur % 60:02d}'
-            else:
-                m3u8_url = ''
-                vod_pic = ''
-                vod_name = ''
-                vod_content = ''
-                duration_str = ''
+    def playerContent(self, flag, ids, vipFlags=None):
+        vid = str(ids).split("@")[0]
+        html = _fetch_page(f"/detail/{vid}")
+        if not html: return {"parse": 0, "playUrl": "", "header": {}}
+        play_url = ""
+        m = re.search(r'"contentUrl"\s*:\s*"([^"]+)"', html)
+        if m: play_url = m.group(1)
+        return {"parse": 0, "playUrl": play_url, "header": {"User-Agent": UA, "Referer": BASE_URL + "/"}}
 
-            # 关键修改：如果直接有m3u8，放入播放URL
-            # 使用特殊格式让Fongmi识别为短视频
-            if m3u8_url:
-                # 格式: 集数名称$url#集数名称$url
-                vod_play_url = f'正片${m3u8_url}'
-            else:
-                vod_play_url = ''
+    def localProxy(self, param): return [200, "text/plain", b"", {}]
+    def action(self, action): return {"code": 200, "content": "", "type": "text/plain"}
+    def manualVideoCheck(self): return True
+    def destroy(self): pass
 
-            video_list.append({
-                'vod_id': vid,
-                'vod_name': vod_name,
-                'vod_pic': vod_pic,
-                'vod_remarks': duration_str,
-                'vod_content': vod_content,
-                'vod_play_from': '短视频',  # 改为短视频，可能触发滑动模式
-                'vod_play_url': vod_play_url,
-                'type_name': '短视频',
-                'vod_year': '',
-                'vod_area': '',
-                'vod_director': '',
-                'vod_actor': '',
-            })
-
-        except Exception as e:
-            print(f'detailContent error: {e}')
-
-        return {
-            'list': video_list,
-            'parse': 0,
-            'jx': 0
-        }
-
-    def searchContent(self, key, quick, page='1'):
-        video_list = []
-        try:
-            encoded_key = urllib.parse.quote(key)
-            url = f'{self.home_url}/search/{encoded_key}/page-{page}'
-            html = self._fetch_html(url)
-            video_list = self._extract_video_list(html)
-        except Exception as e:
-            print(f'searchContent error: {e}')
-
-        return {
-            'list': video_list,
-            'page': int(page),
-            'pagecount': 99,
-            'limit': 20,
-            'total': 99 * 20
-        }
-
-    def playerContent(self, flag, pid, vipFlags):
-        """播放器内容 - 关键修改"""
-        # 如果pid已经是m3u8地址，直接返回
-        if pid.startswith('http') and '.m3u8' in pid:
-            return {
-                'parse': 0,  # 直接播放
-                'url': pid,
-                'header': {
-                    'User-Agent': self.ua,
-                    'Referer': self.home_url + '/'
-                }
-            }
-
-        # 如果是详情页URL，获取m3u8
-        if '/detail/' in pid:
-            html = self._fetch_html(pid)
-            if html:
-                src_match = re.search(r'data-src="(https://static\.123av\.fun/[^"]+\.m3u8)"', html)
-                if src_match:
-                    return {
-                        'parse': 0,
-                        'url': src_match.group(1),
-                        'header': {
-                            'User-Agent': self.ua,
-                            'Referer': self.home_url + '/'
-                        }
-                    }
-
-        # 默认返回，让外部解析
-        return {
-            'parse': 1,
-            'url': pid,
-            'header': {
-                'User-Agent': self.ua,
-                'Referer': self.home_url + '/'
-            }
-        }
-
-    def localProxy(self, params):
-        return {}
-
-    def destroy(self):
-        return '正在Destroy'
-
-
-if __name__ == '__main__':
-    pass
+# 测试
+if __name__ == "__main__":
+    sp = Spider(); sp.init()
+    print("=" * 50)
+    print(f"名称: {sp.getName()}")
+    r = sp.homeContent()
+    print(f"  class: {len(r['class'])}")
+    r = sp.homeVideoContent()
+    print(f"  home列表: {len(r['list'])}")
+    if r['list']: print(f"  首项: {r['list'][0]['vod_name'][:20]} id={r['list'][0]['vod_id']}")
+    r = sp.categoryContent("publish-time")
+    print(f"  category: {len(r['list'])} pagecount={r['pagecount']}")
+    r = sp.searchContent("自慰")
+    print(f"  搜索: {len(r['list'])} 项")
+    print("✅ 测试完成")
