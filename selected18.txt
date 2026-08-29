@@ -8,13 +8,13 @@
             "key": "wddj",
             "name": "🐬[成人短剧]黄豆短剧.py 有🔞",
             "type": 3,
-            "api": "https://ghfast.top/https://raw.githubusercontent.com/lang999/GF/refs/heads/main/py/黄豆短剧.py"
+            "api": "https://raw.githubusercontent.com/bugkiller1992/tv/refs/heads/main/py/黄豆短剧.py"
         },
         {
             "key": "51短剧",
             "name": "🐬[成人短剧]51短剧.py｜🔞",
             "type": 3,
-            "api": "https://ghfast.top/https://raw.githubusercontent.com/uuy988/fgh998/refs/heads/main/py/51短剧🔞TG @hshsjk9.py"
+            "api": "https://raw.githubusercontent.com/bugkiller1992/tv/refs/heads/main/py/51短剧🔞TG @hshsjk9.py"
         },
         {
             "key": "狂飙短剧",
@@ -63,7 +63,7 @@
             "key": "javhd",
             "name": "🐬[成人]javhd.py｜🔞",
             "type": 3,
-            "api": "https://ghfast.top/https://raw.githubusercontent.com/uuy988/fgh998/refs/heads/main/py/javhd🔞TG @hshsjk9.py"
+            "api": "https://raw.githubusercontent.com/bugkiller1992/tv/refs/heads/main/py/javhd.py"
         },
 
         {
@@ -76,7 +76,7 @@
             "key": "missav",
             "name": "🐬[成人]missav.py｜🔞",
             "type": 3,
-            "api": "https://ghfast.top/https://raw.githubusercontent.com/uuy988/fgh998/refs/heads/main/py/missav1🔞TG @hshsjk9.py"
+            "api": "https://raw.githubusercontent.com/bugkiller1992/tv/refs/heads/main/py//missav.py"
         },
         {
             "key": "missavjs",
@@ -106,7 +106,7 @@
             "key": "Pornhub",
             "name": "🐬[成人]Pornhub.py｜🔞",
             "type": 3,
-            "api": "https://ghfast.top/https://raw.githubusercontent.com/lang999/GF/refs/heads/main/py/Pornhub.py"
+            "api": "https://raw.githubusercontent.com/bugkiller1992/tv/refs/heads/main/py/Pornhub.py"
         },
         {
             "key": "xhamster",
