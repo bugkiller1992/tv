@@ -72,7 +72,7 @@
     "api": "csp_GM",
     "jar": "./lib/GM.jar;md5;a36831ed798998bbf38bb5862c32f96d",
     "ext": {
-      "userScript": "./lib/jable.user.js",
+      "userScript": "./js/jable.user.js",
       "debug": false,
       "webViewSettings": {
         "blockNetworkImage": true,
@@ -125,7 +125,7 @@
     "api": "csp_GM",
     "jar": "./lib/GM.jar;md5;a36831ed798998bbf38bb5862c32f96d",
     "ext": {
-      "userScript": "./lib/netflav.user.js",
+      "userScript": "./js/netflav.user.js",
       "debug": false,
       "webViewSettings": {
         "blockNetworkImage": true,
@@ -178,7 +178,7 @@
     "api": "csp_GM",
     "jar": "./lib/GM.jar;md5;a36831ed798998bbf38bb5862c32f96d",
     "ext": {
-      "userScript": "./lib/123av.user.js",
+      "userScript": "./js/123av.user.js",
       "debug": false,
       "webViewSettings": {
         "blockNetworkImage": true,
@@ -445,148 +445,6 @@
       }
     }
   },
-{
-  "key": "supjav-gptv1",
-  "name": "SupJav-GPTV1",
-  "type": 3,
-  "quickSearch": 0,
-  "searchable": 1,
-  "changeable": 0,
-  "filterable": 1,
-  "timeout": 90,
-  "style": {
-    "type": "rect",
-    "ratio": 1.48
-  },
-  "api": "csp_GM",
-  "jar": "./lib/GM.jar;md5;a36831ed798998bbf38bb5862c32f96d",
-  "ext": {
-    "userScript": "./lib/supjav.gptv1.js",
-    "debug": true,
-    "webViewSettings": {
-      "blockNetworkImage": false,
-      "blockList": [
-        "https://*.adforcast.com/*",
-        "https://*.adxadserv.com/*",
-        "https://*.bbrdbr.com/*",
-        "https://*.fanza.cc/*",
-        "https://*.google-analytics.com/*",
-        "https://*.googletagmanager.com/*",
-        "https://*.mnaspm.com/*",
-        "https://*.recombee.com/*",
-        "https://*.sacdnssedge.com/*",
-        "https://*.tapioni.com/*",
-        "https://*.yandex.ru/*",
-        "https://*/prebid.min.js",
-        "https://divisiondrearilyunfiled.com/*",
-        "https://endowmentoverhangutmost.com/*",
-        "https://imasdk.googleapis.com/*",
-        "https://psoroumukr.com/*",
-        "https://static.ads-twitter.com/*",
-        "https://streamhg.com/*"
-      ]
-    },
-    "playUrlMatch": [
-      "https://*.cdn-centaurus.com/*/master.m3u8*",
-      "https://*.cloudatacdn.com/*",
-      "https://*.cloudflarestorage.com/*",
-      "https://*.linkofnyz.com/*.m3u8*",
-      "https://*.tapecontent.net/*",
-      "https://*.turboviplay.*/*.m3u8",
-      "https://*.voe-network.net/*/master.m3u8*",
-      "https://dood.la/pass_md5/*",
-      "https://streamtape.com/get_video*"
-    ],
-    "spider": {
-      "homeContent": {
-        "loadUrl": "https://supjav.com/zh/popular"
-      },
-      "categoryContent": {
-        "loadUrl": "https://supjav.com/zh/${tid}/page/${pg:-1}?sort=${sort:-quantity}"
-      },
-      "detailContent": {
-        "loadUrl": "https://supjav.com/zh/${id}"
-      },
-      "playerContent": {
-        "loadUrl": "https://supjav.com/zh/${pathname}#${link}"
-      },
-      "searchContent": {
-        "loadUrl": "https://supjav.com/zh/page/${pg:-1}?s=${key}"
-      }
-    }
-  }
-},
-{
-  "key": "supjav-gptv2",
-  "name": "SupJav-gptv2",
-  "type": 3,
-  "quickSearch": 0,
-  "searchable": 1,
-  "changeable": 0,
-  "filterable": 1,
-  "timeout": 90,
-  "style": {
-    "type": "rect",
-    "ratio": 1.48
-  },
-  "api": "csp_GM",
-  "jar": "./lib/GM.jar;md5;a36831ed798998bbf38bb5862c32f96d",
-  "ext": {
-    "userScript": "./lib/supjav.gptv2.js",
-    "debug": true,
-    "webViewSettings": {
-      "blockNetworkImage": false,
-      "blockList": [
-        "https://*.adforcast.com/*",
-        "https://*.adxadserv.com/*",
-        "https://*.bbrdbr.com/*",
-        "https://*.fanza.cc/*",
-        "https://*.google-analytics.com/*",
-        "https://*.googletagmanager.com/*",
-        "https://*.mnaspm.com/*",
-        "https://*.recombee.com/*",
-        "https://*.sacdnssedge.com/*",
-        "https://*.tapioni.com/*",
-        "https://*.yandex.ru/*",
-        "https://*/prebid.min.js",
-        "https://divisiondrearilyunfiled.com/*",
-        "https://endowmentoverhangutmost.com/*",
-        "https://imasdk.googleapis.com/*",
-        "https://psoroumukr.com/*",
-        "https://static.ads-twitter.com/*",
-        "https://streamhg.com/*"
-      ]
-    },
-    "playUrlMatch": [
-      "https://*.cdn-centaurus.com/*/master.m3u8*",
-      "https://*.cloudatacdn.com/*",
-      "https://*.cloudflarestorage.com/*",
-      "https://*.linkofnyz.com/*.m3u8*",
-      "https://*.tapecontent.net/*",
-      "https://*.turboviplay.*/*.m3u8",
-      "https://*.voe-network.net/*/master.m3u8*",
-      "https://dood.la/pass_md5/*",
-      "https://streamtape.com/get_video*"
-    ],
-    "spider": {
-      "homeContent": {
-        "loadUrl": "https://supjav.com/zh/popular"
-      },
-      "categoryContent": {
-        "loadUrl": "https://supjav.com/zh/${tid}"
-      },
-      "detailContent": {
-        "loadUrl": "https://supjav.com/zh/${id}"
-      },
-      "playerContent": {
-        "loadUrl": "https://supjav.com/zh/${pathname}#${link}"
-      },
-      "searchContent": {
-        "loadUrl": "https://supjav.com/zh/page/${pg:-1}?s=${key}"
-      }
-    }
-  }
-},
   {
     "key": "XOJAV",
     "name": "XOJAV",
@@ -603,7 +461,7 @@
     "api": "csp_GM",
     "jar": "./lib/GM.jar;md5;a36831ed798998bbf38bb5862c32f96d",
     "ext": {
-      "userScript": "./lib/xojav.user.js",
+      "userScript": "./js/xojav.user.js",
       "debug": false,
       "webViewSettings": {
         "blockNetworkImage": true,
