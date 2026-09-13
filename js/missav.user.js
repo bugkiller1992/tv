@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MissAV GMSpider Final Stable
 // @namespace    gmspider.missav
-// @version      2026.03.15.v3
+// @version      2026.03.15.v4
 // @match        https://missav.ws/*
 // @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
@@ -104,7 +104,7 @@
                     });
                 }
             } catch (e) {
-                // 忽略非合法 URL
+                // 忽略非法 URL
             }
         });
 
@@ -124,7 +124,6 @@
 
     const MissAV = {
 
-        // 补全主页的分类导航与默认影片列表
         async homeContent(pg = 1) {
             const url = `https://missav.ws/cn/new?page=${pg}`;
             const html = await fetchHtml(url);
@@ -149,10 +148,6 @@
 
         async categoryContent(tid, pg = 1) {
             let path = tid;
-            if (tid === "today-hot") path = "today-hot";
-            else if (tid === "weekly-hot") path = "weekly-hot";
-            else if (tid === "monthly-hot") path = "monthly-hot";
-
             let url = `https://missav.ws/cn/${path}?page=${pg}`;
             const html = await fetchHtml(url);
             const doc = new DOMParser().parseFromString(html, "text/html");
@@ -181,6 +176,7 @@
 
             const doc = new DOMParser().parseFromString(html, "text/html");
 
+            // 1. 解析基础元数据
             let title = doc.querySelector("h1")?.innerText.trim() || "";
             let pic = doc.querySelector("video")?.getAttribute("poster") || 
                       doc.querySelector("meta[property='og:image']")?.content || "";
@@ -190,16 +186,67 @@
                 else if (pic.startsWith("/")) pic = "https://missav.ws" + pic;
             }
 
-            let playList = [];
+            // 2. 详细元数据提取（演员、分类、发行时间、简介、类型标签）
+            let actors = [];
+            let categories = [];
+            let tags = [];
+            let releaseDate = "";
+            let description = doc.querySelector("meta[name='description']")?.content || "";
 
-            // 1. 深度匹配 M3U8 直链接（涵盖各种 CDN pattern）
-            const m3u8Matches = html.match(/https?:\/\/[^'"]+\.m3u8[^'"]*/g);
-            if (m3u8Matches && m3u8Matches.length > 0) {
-                // 去重
-                const uniqueUrls = [...new Set(m3u8Matches)];
-                uniqueUrls.forEach((mUrl, index) => {
+            // 尝试遍历 MissAV 详情页的属性数据区 (通常是 .mt-4 中的几项内容或 div 节点)
+            doc.querySelectorAll(".mt-4 div, .space-y-2 div").forEach(el => {
+                const text = el.innerText.trim();
+                
+                // 解析女优/演员
+                if (text.includes("女优") || text.includes("演員") || text.includes("Actress")) {
+                    el.querySelectorAll("a").forEach(a => actors.push(a.innerText.trim()));
+                }
+                // 解析分类/类型
+                else if (text.includes("类型") || text.includes("分類") || text.includes("Genre")) {
+                    el.querySelectorAll("a").forEach(a => categories.push(a.innerText.trim()));
+                }
+                // 解析标签
+                else if (text.includes("标签") || text.includes("標籤") || text.includes("Tag")) {
+                    el.querySelectorAll("a").forEach(a => tags.push(a.innerText.trim()));
+                }
+                // 解析时间/发行日期
+                else if (text.includes("发行日期") || text.includes("發行日期") || text.includes("Release Date")) {
+                    releaseDate = text.replace(/发行日期|發行日期|Release Date|:|\s/g, "");
+                }
+            });
+
+            // 备用抽取演员与分类
+            if (actors.length === 0) {
+                doc.querySelectorAll("a[href*='/actresses/']").forEach(a => {
+                    const txt = a.innerText.trim();
+                    if (txt && !actors.includes(txt)) actors.push(txt);
+                });
+            }
+            if (categories.length === 0) {
+                doc.querySelectorAll("a[href*='/genres/']").forEach(a => {
+                    const txt = a.innerText.trim();
+                    if (txt && !categories.includes(txt)) categories.push(txt);
+                });
+            }
+
+            // 3. 提取播放链接逻辑（强效正则与 Script 节点字符串捕获）
+            let playList = [];
+            let m3u8Set = new Set();
+
+            // 正则模式：精准抓取字符串中的 m3u8 地址
+            const m3u8Regex = /(https?:\/\/[^\s"'<>\\]+?\.m3u8[^\s"'<>\\]*)/g;
+            let match;
+            while ((match = m3u8Regex.exec(html)) !== null) {
+                let cleanUrl = match[1].replace(/\\/g, '');
+                m3u8Set.add(cleanUrl);
+            }
+
+            // 如果匹配到了直链 m3u8
+            if (m3u8Set.size > 0) {
+                let idx = 1;
+                m3u8Set.forEach(mUrl => {
                     playList.push({
-                        from: `线路 ${index + 1} (直连)`,
+                        from: `线路 ${idx++} (Direct)`,
                         media: [{
                             name: title,
                             type: "m3u8",
@@ -215,7 +262,7 @@
                 });
             }
 
-            // 2. 尝试从 video 节点解析
+            // 如果没有抓到 direct m3u8，尝试通过页面的 video 标签获取
             if (playList.length === 0) {
                 doc.querySelectorAll("video source, video").forEach((v, i) => {
                     const videoSrc = v.src || v.getAttribute("src");
@@ -237,7 +284,7 @@
                 });
             }
 
-            // 3. Webview 兜底（加载完整网页）
+            // Webview 网页播放模式兜底
             if (playList.length === 0) {
                 playList.push({
                     from: "网页播放 (Webview)",
@@ -256,6 +303,11 @@
                     vod_id: targetId,
                     vod_name: title,
                     vod_pic: pic,
+                    vod_type: categories.join(" / "),
+                    vod_actor: actors.join(" / "),
+                    vod_remarks: tags.length > 0 ? tags.join(" ") : (releaseDate || title),
+                    vod_year: releaseDate,
+                    vod_content: description,
                     vod_play_data: playList
                 }]
             };
