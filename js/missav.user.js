@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MissAV GMSpider Final Stable
 // @namespace    gmspider.missav
-// @version      2026.03.15.v5
+// @version      2026.03.15.v6
 // @match        https://missav.ws/*
 // @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
@@ -31,7 +31,7 @@
         });
     }
 
-    // JS Packer (eval) 混淆解包算法，用于还原加密的视频 M3U8 地址
+    // JS Packer 混淆解包
     function unpackJs(packedCode) {
         try {
             if (!packedCode || !packedCode.includes("eval(function(p,a,c,k,e,d)")) return packedCode;
@@ -187,8 +187,8 @@
 
             const doc = new DOMParser().parseFromString(html, "text/html");
 
-            // 1. 基础元数据解析
-            let title = doc.querySelector("h1")?.innerText.trim() || "";
+            // 1. 番号与标题解析
+            let title = doc.querySelector("h1")?.innerText.trim() || targetId;
             let pic = doc.querySelector("video")?.getAttribute("poster") || 
                       doc.querySelector("meta[property='og:image']")?.content || "";
 
@@ -197,7 +197,7 @@
                 else if (pic.startsWith("/")) pic = "https://missav.ws" + pic;
             }
 
-            // 2. 解析演员并构造 GMSpider 可点击高亮超链接格式
+            // 2. 演员提取 (规范超链接，高亮可点击过滤)
             let vodActorList = [];
             doc.querySelectorAll("a[href*='/actresses/']").forEach(a => {
                 const name = a.innerText.trim();
@@ -211,7 +211,21 @@
                 }
             });
 
-            // 3. 解析分类与标签
+            // 3. 片商 / 制作商 (规范超链接)
+            let vodDirectorList = [];
+            doc.querySelectorAll("a[href*='/makers/'], a[href*='/studios/']").forEach(a => {
+                const name = a.innerText.trim();
+                const href = a.getAttribute("href") || "";
+                if (name && href) {
+                    try {
+                        const makerId = new URL(href, "https://missav.ws").pathname.replace(/^\/|\/$/g, '');
+                        const formatted = `[a=cr:{"id":"${makerId}","name":"${name}"}/]${name}[/a]`;
+                        if (!vodDirectorList.includes(formatted)) vodDirectorList.push(formatted);
+                    } catch (e) {}
+                }
+            });
+
+            // 4. 分类 & 标签
             let categories = [];
             doc.querySelectorAll("a[href*='/genres/']").forEach(a => {
                 const txt = a.innerText.trim();
@@ -224,20 +238,23 @@
                 if (txt && !tags.includes(txt)) tags.push("#" + txt);
             });
 
+            // 发行时间
             let releaseDate = "";
-            doc.querySelectorAll("div").forEach(div => {
-                if (div.innerText.includes("发行日期:")) {
-                    releaseDate = div.innerText.replace("发行日期:", "").trim();
+            doc.querySelectorAll("div, p, span").forEach(el => {
+                if (el.innerText && el.innerText.includes("发行日期:")) {
+                    releaseDate = el.innerText.replace("发行日期:", "").trim();
                 }
             });
 
-            let description = doc.querySelector("meta[name='description']")?.content || "";
+            // 简介
+            let description = doc.querySelector("meta[name='description']")?.content || 
+                              doc.querySelector(".text-gray-400.line-clamp-4")?.innerText.trim() || title;
 
-            // 4. 解析视频播放地址（解包脚本 + 多维正则提取）
+            // 5. 播放线路构建 (支持 Direct M3U8 与 WebView 双重透传)
             let playList = [];
             let m3u8Set = new Set();
 
-            // 提取 Script 标签并进行解包尝试
+            // 5.1 从 Script 脚本及 unpack 中抓取 M3U8
             doc.querySelectorAll("script").forEach(scriptNode => {
                 let sContent = scriptNode.textContent || "";
                 if (sContent.includes("eval(function")) {
@@ -249,7 +266,7 @@
                 }
             });
 
-            // 如果静态提取未果，从全局文本提取
+            // 5.2 全局正则备选匹配
             if (m3u8Set.size === 0) {
                 const globalMatches = html.match(/(https?:\/\/[^\s"'<>\\]+?\.m3u8[^\s"'<>\\]*)/g);
                 if (globalMatches) {
@@ -257,12 +274,12 @@
                 }
             }
 
-            // 组装播放节点
+            // 5.3 组装 Direct 线路
             if (m3u8Set.size > 0) {
                 let idx = 1;
                 m3u8Set.forEach(mUrl => {
                     playList.push({
-                        from: `线路 ${idx++}`,
+                        from: `Direct 线路 ${idx++}`,
                         media: [{
                             name: title,
                             type: "m3u8",
@@ -278,19 +295,17 @@
                 });
             }
 
-            // 兜底方案：Webview
-            if (playList.length === 0) {
-                playList.push({
-                    from: "网页播放 (Webview)",
-                    media: [{
-                        name: title,
-                        type: "webview",
-                        ext: {
-                            url: pageUrl
-                        }
-                    }]
-                });
-            }
+            // 5.4 WebView 线路强效兜底（保证点击能够正常播放画面）
+            playList.push({
+                from: "MissAV 站源 (Webview)",
+                media: [{
+                    name: title,
+                    type: "webview",
+                    ext: {
+                        url: pageUrl
+                    }
+                }]
+            });
 
             return {
                 list: [{
@@ -299,7 +314,8 @@
                     vod_pic: pic,
                     vod_type: categories.join(" / "),
                     vod_actor: vodActorList.join(" "),
-                    vod_remarks: tags.length > 0 ? tags.join(" ") : releaseDate,
+                    vod_director: vodDirectorList.join(" "),
+                    vod_remarks: tags.length > 0 ? tags.join(" ") : (releaseDate || "MissAV"),
                     vod_year: releaseDate,
                     vod_content: description,
                     vod_play_data: playList
