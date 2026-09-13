@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         MissAV GMSpider Final Stable
 // @namespace    gmspider.missav
-// @version      2026.03.15
+// @version      2026.03.15.v2
 // @match        https://missav.ws/*
 // @grant        GM_xmlhttpRequest
 // @grant        unsafeWindow
@@ -31,26 +31,74 @@
         });
     }
 
+    // 严谨的图片 URL 提取函数
+    function extractImgUrl(element) {
+        if (!element) return "";
+
+        let imgUrl = "";
+
+        // 1. 从 <img> 标签及其各种懒加载属性解析
+        const img = element.tagName === "IMG" ? element : element.querySelector("img");
+        if (img) {
+            // 优先处理 srcset / data-srcset (经常包含完整的高清地址)
+            const srcset = img.getAttribute("data-srcset") || img.getAttribute("srcset");
+            if (srcset) {
+                const candidates = srcset.split(",").map(s => s.trim().split(" ")[0]);
+                imgUrl = candidates.pop() || "";
+            }
+
+            // 备选各种懒加载属性
+            if (!imgUrl || imgUrl.startsWith("data:image")) {
+                imgUrl = img.getAttribute("data-src") || 
+                         img.getAttribute("data-lazy-src") || 
+                         img.getAttribute("data-original") || 
+                         img.getAttribute("src") || "";
+            }
+        }
+
+        // 2. 如果 img 没拿到，尝试从节点的 style (background-image) 中正则获取
+        if (!imgUrl || imgUrl.startsWith("data:image")) {
+            const style = element.getAttribute("style") || "";
+            const bgMatch = style.match(/url\(['"]?(.*?)['"]?\)/);
+            if (bgMatch && bgMatch[1]) {
+                imgUrl = bgMatch[1];
+            }
+        }
+
+        // 避免返回占位 Base64
+        if (imgUrl.startsWith("data:image")) {
+            imgUrl = "";
+        }
+
+        // 补全相对路径与协议前缀
+        if (imgUrl) {
+            if (imgUrl.startsWith("//")) {
+                imgUrl = "https:" + imgUrl;
+            } else if (imgUrl.startsWith("/")) {
+                imgUrl = "https://missav.ws" + imgUrl;
+            }
+        }
+
+        return imgUrl;
+    }
+
     function parseList(html) {
         const doc = new DOMParser().parseFromString(html, "text/html");
         let list = [];
 
-        // MissAV 常用链接为选择器 a 或包含图片/卡片的容器
+        // MissAV 卡片容器选择器
         doc.querySelectorAll("div.thumbnail, a.group, div.my-2").forEach(el => {
             const a = el.tagName === "A" ? el : el.querySelector("a");
             if (!a) return;
 
             const href = a.getAttribute("href") || a.href || "";
-            if (!href || href.startsWith("javascript")) return;
+            if (!href || href.startsWith("javascript") || href.includes("/tags/")) return;
 
-            const img = el.querySelector("img");
-            // 优先读取 data-src / data-srcset 防止懒加载导致图片为空
-            let imgSrc = img ? (img.getAttribute("data-src") || img.getAttribute("src") || "") : "";
-            if (imgSrc.includes("data:image")) {
-                imgSrc = img.getAttribute("data-src") || "";
-            }
+            // 调用强化后的图片解析方法
+            const imgSrc = extractImgUrl(el);
 
-            const title = img?.getAttribute("alt") || el.querySelector(".title, h2, h3")?.innerText.trim() || "";
+            const imgNode = el.querySelector("img");
+            const title = imgNode?.getAttribute("alt") || el.querySelector(".title, h2, h3, a.text-secondary")?.innerText.trim() || "";
 
             try {
                 const url = new URL(href, "https://missav.ws");
@@ -61,11 +109,11 @@
                         vod_id: vodId,
                         vod_name: title,
                         vod_pic: imgSrc,
-                        vod_remarks: el.querySelector(".duration, .bg-gray-800")?.innerText.trim() || ""
+                        vod_remarks: el.querySelector(".duration, .bg-gray-800, .absolute.bottom-1")?.innerText.trim() || ""
                     });
                 }
             } catch (e) {
-                // 忽略解析失败的 URL
+                // 忽略非法 URL
             }
         });
 
@@ -74,7 +122,7 @@
 
     function parsePageCount(doc) {
         let maxPage = 1;
-        doc.querySelectorAll("a.page-link, nav a").forEach(el => {
+        doc.querySelectorAll("a.page-link, nav a, .pagination a").forEach(el => {
             const num = parseInt(el.innerText.trim());
             if (!isNaN(num) && num > maxPage) {
                 maxPage = num;
@@ -126,11 +174,19 @@
             const doc = new DOMParser().parseFromString(html, "text/html");
 
             let title = doc.querySelector("h1")?.innerText.trim() || "";
-            let pic = doc.querySelector("video")?.getAttribute("poster") || doc.querySelector("meta[property='og:image']")?.content || "";
+            
+            // 详情页封面提取
+            let pic = doc.querySelector("video")?.getAttribute("poster") || 
+                      doc.querySelector("meta[property='og:image']")?.content || "";
+
+            if (pic) {
+                if (pic.startsWith("//")) pic = "https:" + pic;
+                else if (pic.startsWith("/")) pic = "https://missav.ws" + pic;
+            }
 
             let playList = [];
 
-            // 1. 尝试使用正则直接寻找 JS 动态加载的 .m3u8 播放地址
+            // 1. 正则检索 .m3u8 直链
             const m3u8Match = html.match(/https?:\/\/[^'"]+\.m3u8[^'"]*/);
             if (m3u8Match) {
                 playList.push({
@@ -145,7 +201,7 @@
                 });
             }
 
-            // 2. 传统 video 节点提取回退方案
+            // 2. 节点回退提取
             doc.querySelectorAll("video source, video").forEach((v, i) => {
                 const videoSrc = v.src || v.getAttribute("src");
                 if (videoSrc) {
@@ -163,7 +219,7 @@
                 }
             });
 
-            // 3. 兜底策略：如果未抓取到媒体地址，采用 Webview 页面内加载
+            // 3. Webview 兜底
             if (playList.length === 0) {
                 playList.push({
                     from: "Webview Player",
