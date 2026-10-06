@@ -304,7 +304,7 @@
     }
   },
  {
-    "key": "supjav-ori",
+    "key": "supjavnew",
     "name": "SupJavnew",
     "type": 3,
     "quickSearch": 0,
@@ -319,7 +319,7 @@
     "api": "csp_GM",
     "jar": "./lib/GM.jar;md5;a36831ed798998bbf38bb5862c32f96d",
     "ext": {
-      "userScript": "./js/supjav.user.js",
+      "userScript": "./js/supjavnew.user.js",
       "debug": false,
       "webViewSettings": {
         "blockNetworkImage": true,
