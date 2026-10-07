@@ -2,10 +2,10 @@
   "logo": "https://img.freepik.com/free-vector/cute-dolphin-swimming-cartoon-vector-icon-illustration-animal-nature-icon-isolated-flat-vector_138676-12582.jpg?semt=ais_hybrid&w=740&q=80",
   "sites": [
   {
-  "key": "csp_SupJav",
-  "name": "SupJav (Python)",
+  "key": "supjavnew",
+  "name": "SupJavnew",
   "type": 3,
-  "api": "csp_SupJav",
+  "api": "./py/supjavnew.py",
   "searchable": 1,
   "quickSearch": 1,
   "filterable": 1,
@@ -14,7 +14,6 @@
     "type": "rect",
     "ratio": 1.78
   },
-  "ext": "./py/csp_SupJav.py"
 },
     {
       "key": "UVOD",
