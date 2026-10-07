@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 ==================================================
-@Spider Name : SupJav (Ultimate Fix)
+@Spider Name : SupJav (Final Polish v5)
 @Description : TVBox/CatVod SupJav Spider Plugin
 ==================================================
 """
@@ -306,7 +306,13 @@ class Spider(BaseSpider):
         if tm:
             title = re.sub(r'<[^>]+>', '', tm.group(1))
             title = (title.replace('&amp;', '&').replace('&#8217;', "'")
-                     .replace('&#8211;', '-')).strip()
+                     .replace('&quot;', '"').replace('&#8211;', '-')).strip()
+
+        # 提取番号
+        code = ''
+        cm = re.search(r'\b([A-Z]{2,6}-?\d{2,6}|FC2PPV[\s-]?\d{5,8})\b', title, re.I)
+        if cm:
+            code = cm.group(1).upper()
 
         pic = ''
         pm = re.search(r'background-image:\s*url\((https://img\.supjav\.com/[^)]+)\)', html)
@@ -322,32 +328,28 @@ class Spider(BaseSpider):
         if pic.startswith('http'):
             pic = SJ_IMG_API + urllib.parse.quote(pic, safe='')
 
-        views = ''
-        vm = re.search(r'<span class="views">([^<]+)</span>', html)
-        if vm:
-            views = vm.group(1).strip()
-
-        # 修复：更通用的 Maker 匹配
+        # 精准匹配 Maker (厂牌)
         maker = ''
-        mm_match = re.search(r'/(?:category/)?maker/([^"/]+)["\'][^>]*>([^<]+)</a>', html)
+        mm_match = re.search(r'href="[^"]*/maker/([^"/]+)[^"]*"[^>]*>([^<]+)</a>', html)
+        if not mm_match:
+            mm_match = re.search(r'href="[^"]*/category/maker/([^"/]+)[^"]*"[^>]*>([^<]+)</a>', html)
         if mm_match:
             maker = mm_match.group(2).strip()
 
-        # 修复：更通用的 Cast (演员) 匹配
+        # 精准匹配 Cast (演员)
         actors = []
-        for _, name in re.findall(r'/actress/([^"/]+)["\'][^>]*>([^<]+)</a>', html):
+        for _, name in re.findall(r'href="[^"]*/actress/([^"/]+)[^"]*"[^>]*>([^<]+)</a>', html):
             clean_name = name.strip()
             if clean_name and clean_name not in actors:
                 actors.append(clean_name)
 
-        # 修复：更通用的 Tag 匹配
+        # 精准匹配 Tag (分类)
         tags = []
-        for _, name in re.findall(r'/tag/([^"/]+)["\'][^>]*>([^<]+)</a>', html):
+        for _, name in re.findall(r'href="[^"]*/tag/([^"/]+)[^"]*"[^>]*>([^<]+)</a>', html):
             clean_tag = name.strip()
             if clean_tag and clean_tag not in tags and clean_tag not in actors:
                 tags.append(clean_tag)
 
-        # 修复：播放源名称与 data-link 抓取
         links = re.findall(r'data-link="([0-9a-f]{40,})"', html)
         names = re.findall(r'data-link="[0-9a-f]{40,}"[^>]*>([^<]+)<', html)
         pairs = []
@@ -363,25 +365,24 @@ class Spider(BaseSpider):
         froms = [p[0] for p in pairs]
         urls = [p[1] for p in pairs]
 
-        # 严格按要求构建简介内容（包含标题、maker、cast、tag，绝对没有站源和地区）
-        content_lines = [f"标题: {title}"]
+        # 组装简介：充分利用版面，展示 title, maker, cast, tag, code
+        content_lines = [f"Title: {title}"]
         if maker:
-            maker_str = f"maker: {maker}"
-            content_lines.append(maker_str)
+            content_lines.append(f"maker: {maker}")
         if actors:
-            cast_str = f"cast: {', '.join(actors)}"
-            content_lines.append(cast_str)
+            content_lines.append(f"cast: {', '.join(actors)}")
         if tags:
-            tag_str = f"tag: {', '.join(tags[:15])}"
-            content_lines.append(tag_str)
+            content_lines.append(f"tag: {', '.join(tags[:15])}")
+        if code:
+            content_lines.append(f"search code: {code}")
         content = '\n'.join(content_lines)
 
         vod = {
             'vod_id': vid,
-            'vod_name': title or ('SupJav ' + vid),
+            'vod_name': code if code else (title or ('SupJav ' + vid)),
             'vod_pic': pic,
             'vod_actor': ' / '.join(actors) if actors else '未知',
-            'vod_remarks': views,
+            'vod_remarks': '',  # 不显示 views
             'vod_content': content[:800],
             'vod_play_from': '$$$'.join(froms) if froms else 'SupJav',
             'vod_play_url': '$$$'.join(urls) if urls else ('正片$%s|' % vid),
