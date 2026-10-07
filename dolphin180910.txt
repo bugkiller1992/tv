@@ -13,9 +13,9 @@
     },
     {
       "key": "missav",
-      "name": "🐬[成人]missav.py｜🔞",
+      "name": "missavapp",
       "type": 3,
-      "api": "./py/missav1🔞TG @hshsjk9.py"
+      "api": "./py/missav-app.py"
     },
     {
       "key": "javhd",
