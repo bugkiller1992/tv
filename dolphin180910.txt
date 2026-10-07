@@ -10,6 +10,46 @@
         "type": "rect",
         "ratio": 1.78
       }
+    },
+    {
+      "key": "missav",
+      "name": "MissAV",
+      "type": 3,
+      "api": "./py/missav.py",
+      "style": {
+        "type": "rect",
+        "ratio": 1.78
+      }
+    },
+    {
+      "key": "javhd",
+      "name": "JavHD",
+      "type": 3,
+      "api": "./py/javhd.py",
+      "style": {
+        "type": "rect",
+        "ratio": 1.78
+      }
+    },
+    {
+      "key": "pornhub",
+      "name": "Pornhub",
+      "type": 3,
+      "api": "./py/pornhub.py",
+      "style": {
+        "type": "rect",
+        "ratio": 1.78
+      }
+    },
+    {
+      "key": "huangdou",
+      "name": "黄豆短剧",
+      "type": 3,
+      "api": "./py/huangdou.py",
+      "style": {
+        "type": "rect",
+        "ratio": 1.33
+      }
     }
   ],
   "parses": [
