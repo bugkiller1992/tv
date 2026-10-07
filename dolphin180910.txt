@@ -13,43 +13,27 @@
     },
     {
       "key": "missav",
-      "name": "MissAV",
+      "name": "🐬[成人]missav.py｜🔞",
       "type": 3,
-      "api": "./py/missav.py",
-      "style": {
-        "type": "rect",
-        "ratio": 1.78
-      }
+      "api": "./py/missav1🔞TG @hshsjk9.py"
     },
     {
       "key": "javhd",
-      "name": "JavHD",
+      "name": "🐬[成人]javhd.py｜🔞",
       "type": 3,
-      "api": "./py/javhd.py",
-      "style": {
-        "type": "rect",
-        "ratio": 1.78
-      }
+      "api": "./py/javhd🔞TG @hshsjk9.py"
     },
     {
-      "key": "pornhub",
-      "name": "Pornhub",
+      "key": "Pornhub",
+      "name": "🐬[成人]Pornhub.py｜🔞",
       "type": 3,
-      "api": "./py/pornhub.py",
-      "style": {
-        "type": "rect",
-        "ratio": 1.78
-      }
+      "api": "./py/Pornhub.py"
     },
     {
-      "key": "huangdou",
-      "name": "黄豆短剧",
+      "key": "wddj",
+      "name": "🐬[成人短剧]黄豆短剧.py 有🔞",
       "type": 3,
-      "api": "./py/huangdou.py",
-      "style": {
-        "type": "rect",
-        "ratio": 1.33
-      }
+      "api": "./py/黄豆短剧.py"
     }
   ],
   "parses": [
