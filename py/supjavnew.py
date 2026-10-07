@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 ==================================================
-@Spider Name : SupJav (JS-Standard Final v10)
+@Spider Name : SupJav (JS-Standard Stable v11)
 @Description : TVBox/CatVod SupJav Spider Plugin
 ==================================================
 """
@@ -333,29 +333,27 @@ class Spider(BaseSpider):
             pic = SJ_IMG_API + urllib.parse.quote(pic, safe='')
 
         # 精准提取：Maker, Cast, Tag
-        searchable_terms = []
-        
-        # 提取 Maker (厂牌)
+        makers = []
         for _, name in re.findall(r'href="[^"]*/maker/([^"/]+)[^"]*"[^>]*>([^<]+)</a>', html, re.I):
             clean = name.strip().replace('&amp;', '&')
-            if clean and clean not in searchable_terms:
-                searchable_terms.append(clean)
+            if clean and clean not in makers:
+                makers.append(clean)
         for _, name in re.findall(r'href="[^"]*/category/maker/([^"/]+)[^"]*"[^>]*>([^<]+)</a>', html, re.I):
             clean = name.strip().replace('&amp;', '&')
-            if clean and clean not in searchable_terms:
-                searchable_terms.append(clean)
+            if clean and clean not in makers:
+                makers.append(clean)
 
-        # 提取 Cast (演员)
+        actors = []
         for _, name in re.findall(r'href="[^"]*/actress/([^"/]+)[^"]*"[^>]*>([^<]+)</a>', html, re.I):
             clean = name.strip().replace('&amp;', '&')
-            if clean and clean not in searchable_terms:
-                searchable_terms.append(clean)
+            if clean and clean not in actors:
+                actors.append(clean)
 
-        # 提取 Tag (标签)
+        tags = []
         for _, name in re.findall(r'href="[^"]*/tag/([^"/]+)[^"]*"[^>]*>([^<]+)</a>', html, re.I):
             clean = name.strip().replace('&amp;', '&')
-            if clean and clean not in searchable_terms:
-                searchable_terms.append(clean)
+            if clean and clean not in tags and clean not in actors and clean not in makers:
+                tags.append(clean)
 
         links = re.findall(r'data-link="([0-9a-f]{40,})"', html)
         names = re.findall(r'data-link="[0-9a-f]{40,}"[^>]*>([^<]+)<', html)
@@ -376,9 +374,9 @@ class Spider(BaseSpider):
             'vod_id': vid,
             'vod_name': code if code else title,                  # 标题：只显示番号，无法提取则显示原标题
             'vod_pic': pic,
-            'vod_director': '',                                      # 隐藏默认的“导演”字段
-            'vod_actor': ' / '.join(searchable_terms) if searchable_terms else (code or 'SupJav'), # 将 Maker, Cast, Tag 统一放入演员位，100%支持点击搜索
-            'vod_area': '',                                          # 隐藏默认的“地区”字段
+            'vod_director': ' / '.join(makers) if makers else '',   # 显示 Maker 厂牌（支持点击搜索）
+            'vod_actor': ' / '.join(actors) if actors else '',       # 显示 Cast 演员（支持点击搜索）
+            'vod_area': ' / '.join(tags[:10]) if tags else '',       # 显示 Tag 标签（支持点击搜索）
             'vod_remarks': code,
             'vod_content': title,                                    # 简介：显示原标题内容
             'vod_play_from': '$$$'.join(froms) if froms else 'SupJav',
