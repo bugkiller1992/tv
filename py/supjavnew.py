@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 ==================================================
-@Spider Name : SupJav (Fixed & Optimized v3)
+@Spider Name : SupJav (Fixed Final)
 @Description : TVBox/CatVod SupJav Spider Plugin
 ==================================================
 """
@@ -38,7 +38,7 @@ SJ_HLS_API = PROXY_BASE + '/sj_hls?u='
 SJ_IMG_API = PROXY_BASE + '/sj_img?u='
 LK_BASE = 'https://lk1.supremejav.com/supjav.php'
 
-# 结合站点实际结构调整分类卡片（使用 /zh/ 简体中文前缀与正确的 tag/maker 路径）
+# 恢复最初正常的分类列表，并适配 tag 与 maker
 CATS = [
     ('__home', '最新'),
     ('__popular', '热门'),
@@ -166,7 +166,6 @@ class Spider(BaseSpider):
         for b in blocks:
             m = re.search(r'href="' + re.escape(HOST) + r'/(\d+)\.html"', b)
             if not m:
-                # 兼容 tag、maker 或其他列表页面的链接结构
                 m = re.search(r'href="' + re.escape(HOST) + r'/(?:tag|maker|category|actress)/([^"/]+)/?"', b)
             if not m:
                 continue
@@ -250,7 +249,7 @@ class Spider(BaseSpider):
         return {'class': classes, 'filters': filters}
 
     def homeVideoContent(self):
-        html = self._page(HOST + '/zh/')
+        html = self._page(HOST + '/')
         return {'list': self._cards(html)}
 
     def categoryContent(self, tid, pg, filter, extend):
@@ -260,16 +259,16 @@ class Spider(BaseSpider):
         sort = str(ext.get('sort') or '').strip()
 
         if tid == '__home':
-            url = HOST + '/zh/' if page == 1 else HOST + '/zh/page/%d/' % page
+            url = HOST + '/' if page == 1 else HOST + '/page/%d/' % page
         elif tid == '__popular':
-            url = (HOST + '/zh/popular/' if page == 1
-                   else HOST + '/zh/popular/page/%d/' % page)
+            url = (HOST + '/popular/' if page == 1
+                   else HOST + '/popular/page/%d/' % page)
         else:
-            # 针对 tag、maker 等特殊路径进行精准构造
+            # 兼容标准路径，tag 和 maker 对应根目录下的对应文件夹
             if tid in ['tag', 'maker']:
-                base = HOST + '/zh/' + tid
+                base = HOST + '/' + tid
             else:
-                base = HOST + '/zh/category/' + tid
+                base = HOST + '/category/' + tid
             url = base + ('/' if page == 1 else '/page/%d/' % page)
             if sort:
                 url += '?sort=' + urllib.parse.quote(sort)
@@ -287,7 +286,7 @@ class Spider(BaseSpider):
     def searchContent(self, key, quick, pg="1"):
         page = max(1, int(pg or 1))
         kw = urllib.parse.quote(str(key))
-        url = (HOST + '/zh/?s=' + kw) if page == 1 else (HOST + '/zh/page/%d/?s=%s' % (page, kw))
+        url = (HOST + '/?s=' + kw) if page == 1 else (HOST + '/page/%d/?s=%s' % (page, kw))
         html = self._page(url)
         items = self._cards(html)
         return {
@@ -330,20 +329,20 @@ class Spider(BaseSpider):
         if vm:
             views = vm.group(1).strip()
 
-        # 提取 Maker (厂牌)
+        # 提取 maker (厂牌)
         maker = ''
         mm_match = re.search(r'href="' + re.escape(HOST) + r'/maker/([^"/]+)[^"]*"[^>]*>([^<]+)</a>', html)
         if mm_match:
             maker = mm_match.group(2).strip()
 
-        # 提取 Cast (演员)
+        # 提取 cast (演员)
         actors = []
         for _, name in re.findall(r'href="' + re.escape(HOST) + r'/actress/([^"/]+)[^"]*"[^>]*>([^<]+)</a>', html):
             clean_name = name.strip()
             if clean_name and clean_name not in actors:
                 actors.append(clean_name)
 
-        # 提取 Tag (分类/标签)
+        # 提取 tag (分类/标签)
         tags = []
         for _, name in re.findall(r'href="' + re.escape(HOST) + r'/tag/([^"/]+)[^"]*"[^>]*>([^<]+)</a>', html):
             clean_tag = name.strip()
@@ -365,14 +364,14 @@ class Spider(BaseSpider):
         froms = [p[0] for p in pairs]
         urls = [p[1] for p in pairs]
 
-        # 组装简体中文简介：严格包含 title, maker, cast, tag
+        # 严格按照要求组装简介：展示标题、maker、cast、tag，已完全去除站源和地区
         content_lines = [f"标题: {title}"]
         if maker:
-            content_lines.append(f"厂牌(Maker): {maker}")
+            content_lines.append(f"Maker: {maker}")
         if actors:
-            content_lines.append(f"演员(Cast): {', '.join(actors)}")
+            content_lines.append(f"Cast: {', '.join(actors)}")
         if tags:
-            content_lines.append(f"标签(Tag): {', '.join(tags[:15])}")
+            content_lines.append(f"Tag: {', '.join(tags[:15])}")
         content = '\n'.join(content_lines)
 
         vod = {
