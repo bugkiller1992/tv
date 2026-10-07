@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 ==================================================
-@Spider Name : SupJav (Stable + Detail Fixed)
+@Spider Name : SupJav (Ultimate Fix)
 @Description : TVBox/CatVod SupJav Spider Plugin
 ==================================================
 """
@@ -327,31 +327,32 @@ class Spider(BaseSpider):
         if vm:
             views = vm.group(1).strip()
 
-        # 微调：精准匹配 SupJav 详情页的 Maker (厂牌) 结构
+        # 修复：更通用的 Maker 匹配
         maker = ''
-        mm_match = re.search(r'maker/([^"/]+)["\'][^>]*>([^<]+)</a>', html)
+        mm_match = re.search(r'/(?:category/)?maker/([^"/]+)["\'][^>]*>([^<]+)</a>', html)
         if mm_match:
             maker = mm_match.group(2).strip()
 
-        # 微调：精准匹配 SupJav 详情页的 Cast (演员) 结构
+        # 修复：更通用的 Cast (演员) 匹配
         actors = []
-        for _, name in re.findall(r'actress/([^"/]+)["\'][^>]*>([^<]+)</a>', html):
+        for _, name in re.findall(r'/actress/([^"/]+)["\'][^>]*>([^<]+)</a>', html):
             clean_name = name.strip()
             if clean_name and clean_name not in actors:
                 actors.append(clean_name)
 
-        # 微调：精准匹配 SupJav 详情页的 Tag (分类) 结构
+        # 修复：更通用的 Tag 匹配
         tags = []
-        for _, name in re.findall(r'tag/([^"/]+)["\'][^>]*>([^<]+)</a>', html):
+        for _, name in re.findall(r'/tag/([^"/]+)["\'][^>]*>([^<]+)</a>', html):
             clean_tag = name.strip()
             if clean_tag and clean_tag not in tags and clean_tag not in actors:
                 tags.append(clean_tag)
 
+        # 修复：播放源名称与 data-link 抓取
         links = re.findall(r'data-link="([0-9a-f]{40,})"', html)
-        names = re.findall(r'data-link="[0-9a-f]{40,}"[^>]*>([^<]{1,12})<', html)
+        names = re.findall(r'data-link="[0-9a-f]{40,}"[^>]*>([^<]+)<', html)
         pairs = []
         for i, lk in enumerate(links):
-            nm = names[i].strip() if i < len(names) else ('线路%d' % (i + 1))
+            nm = names[i].strip() if i < len(names) and names[i].strip() else ('线路%d' % (i + 1))
             pairs.append((nm, '正片$%s|%s' % (vid, lk)))
 
         def _rank(nm):
@@ -362,14 +363,17 @@ class Spider(BaseSpider):
         froms = [p[0] for p in pairs]
         urls = [p[1] for p in pairs]
 
-        # 组装详情页信息（无站源、无地区，包含 title, maker, cast, tag）
+        # 严格按要求构建简介内容（包含标题、maker、cast、tag，绝对没有站源和地区）
         content_lines = [f"标题: {title}"]
         if maker:
-            content_lines.append(f"maker: {maker}")
+            maker_str = f"maker: {maker}"
+            content_lines.append(maker_str)
         if actors:
-            content_lines.append(f"cast: {', '.join(actors)}")
+            cast_str = f"cast: {', '.join(actors)}"
+            content_lines.append(cast_str)
         if tags:
-            content_lines.append(f"tag: {', '.join(tags[:15])}")
+            tag_str = f"tag: {', '.join(tags[:15])}"
+            content_lines.append(tag_str)
         content = '\n'.join(content_lines)
 
         vod = {
