@@ -350,3 +350,4 @@ class Spider(Spider):
                 return {"m3u8": "", "direct": src}
 
         return {"m3u8": "", "direct": ""}
+
