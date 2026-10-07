@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 ==================================================
-@Spider Name : SupJav (JS-Standard Searchable v8)
+@Spider Name : SupJav (JS-Standard Strict v9)
 @Description : TVBox/CatVod SupJav Spider Plugin
 ==================================================
 """
@@ -308,7 +308,7 @@ class Spider(BaseSpider):
             title = (title.replace('&amp;', '&').replace('&#8217;', "'")
                      .replace('&quot;', '"').replace('&#8211;', '-')).strip()
 
-        # 完美提取番号 (Code)
+        # 提取番号 (Code)
         code = ''
         cm = re.search(r'\b([A-Z]{2,6}-?\d{2,6}|FC2PPV[\s-]?\d{5,8})\b', title, re.I)
         if cm:
@@ -332,23 +332,28 @@ class Spider(BaseSpider):
         if pic.startswith('http'):
             pic = SJ_IMG_API + urllib.parse.quote(pic, safe='')
 
-        # 提取页面中的所有元数据标签、厂牌、演员（用于放入可搜索栏）
-        searchable_terms = []
-        if code:
-            searchable_terms.append(code)
+        # 精准解析：Maker, Cast, Tag
+        makers = []
+        for _, name in re.findall(r'href="[^"]*/maker/([^"/]+)[^"]*"[^>]*>([^<]+)</a>', html, re.I):
+            clean = name.strip().replace('&amp;', '&')
+            if clean and clean not in makers:
+                makers.append(clean)
+        for _, name in re.findall(r'href="[^"]*/category/maker/([^"/]+)[^"]*"[^>]*>([^<]+)</a>', html, re.I):
+            clean = name.strip().replace('&amp;', '&')
+            if clean and clean not in makers:
+                makers.append(clean)
 
-        for a_match in re.finditer(r'<a\s+[^>]*href=["\']([^"\']+)["\'][^>]*>([^<]+)</a>', html, re.I):
-            href = a_match.group(1)
-            text = a_match.group(2).strip()
-            text = text.replace('&amp;', '&').replace('&#8217;', "'").replace('&quot;', '"').strip()
-            if not text or len(text) > 40:
-                continue
-            if text.lower() in ['home', '首页', 'popular', '热门', 'dmca', 'contact', 'login', 'signup', 'next', 'prev', 'zh', 'en']:
-                continue
-            # 匹配所有分类、标签、厂牌、演员链接
-            if any(kw in href for kw in ['/tag/', '/maker/', '/actress/', '/category/', '/star/', '/genre/']):
-                if text not in searchable_terms:
-                    searchable_terms.append(text)
+        actors = []
+        for _, name in re.findall(r'href="[^"]*/actress/([^"/]+)[^"]*"[^>]*>([^<]+)</a>', html, re.I):
+            clean = name.strip().replace('&amp;', '&')
+            if clean and clean not in actors:
+                actors.append(clean)
+
+        tags = []
+        for _, name in re.findall(r'href="[^"]*/tag/([^"/]+)[^"]*"[^>]*>([^<]+)</a>', html, re.I):
+            clean = name.strip().replace('&amp;', '&')
+            if clean and clean not in tags and clean not in actors and clean not in makers:
+                tags.append(clean)
 
         links = re.findall(r'data-link="([0-9a-f]{40,})"', html)
         names = re.findall(r'data-link="[0-9a-f]{40,}"[^>]*>([^<]+)<', html)
@@ -365,16 +370,15 @@ class Spider(BaseSpider):
         froms = [p[0] for p in pairs]
         urls = [p[1] for p in pairs]
 
-        # 将番号及所有标签塞入 vod_actor，确保在 TVBox 中点击任意标签/番号都能直接触发搜索！
         vod = {
             'vod_id': vid,
-            'vod_name': (code + ' ' + title) if (code and code not in title) else title,
+            'vod_name': code if code else title,                  # 标题：只显示番号，无法提取则显示原标题
             'vod_pic': pic,
-            'vod_director': searchable_terms[1] if len(searchable_terms) > 1 else (code or 'SupJav'),
-            'vod_actor': ' / '.join(searchable_terms) if searchable_terms else (code or 'SupJav'),
-            'vod_area': 'SupJav',
+            'vod_director': ' / '.join(makers) if makers else '', # 可搜索：Maker 厂牌
+            'vod_actor': ' / '.join(actors) if actors else '',       # 可搜索：Cast 演员
+            'vod_area': ' / '.join(tags[:10]) if tags else '',       # 可搜索：Tag 标签
             'vod_remarks': code,
-            'vod_content': title,
+            'vod_content': title,                                    # 简介：显示原标题内容
             'vod_play_from': '$$$'.join(froms) if froms else 'SupJav',
             'vod_play_url': '$$$'.join(urls) if urls else ('正片$%s|' % vid),
         }
