@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 ==================================================
-@Spider Name : SupJav (Strict Structure Fixed v4)
+@Spider Name : SupJav (Stable + Detail Fixed)
 @Description : TVBox/CatVod SupJav Spider Plugin
 ==================================================
 """
@@ -38,7 +38,6 @@ SJ_HLS_API = PROXY_BASE + '/sj_hls?u='
 SJ_IMG_API = PROXY_BASE + '/sj_img?u='
 LK_BASE = 'https://lk1.supremejav.com/supjav.php'
 
-# 使用 /zh/ 路径下的分类与标签
 CATS = [
     ('__home', '最新'),
     ('__popular', '热门'),
@@ -166,7 +165,7 @@ class Spider(BaseSpider):
         for b in blocks:
             m = re.search(r'href="' + re.escape(HOST) + r'/(\d+)\.html"', b)
             if not m:
-                m = re.search(r'href="' + re.escape(HOST) + r'/(?:zh/)?(?:tag|maker|category|actress)/([^"/]+)/?"', b)
+                m = re.search(r'href="' + re.escape(HOST) + r'/(?:tag|maker|category|actress)/([^"/]+)/?"', b)
             if not m:
                 continue
             vid = m.group(1)
@@ -195,12 +194,12 @@ class Spider(BaseSpider):
                 pic = SJ_IMG_API + urllib.parse.quote(pic, safe='')
             
             code = ''
-            cm = re.search(r'\b([A-Z]{2,6}-?\d{2,6}|FC2PPV[\s-]?\d{5,8})\b', title, re.I)
+            cm = re.search(r'\b([A-Z]{2,6}-?\d{2,6}|FC2PPV[\s-]?\d{5,8})\b', title)
             if cm:
-                code = cm.group(1).upper()
+                code = cm.group(1)
             out.append({
                 'vod_id': vid,
-                'vod_name': code if code else title[:90],
+                'vod_name': title[:90],
                 'vod_pic': pic,
                 'vod_remarks': code,
             })
@@ -249,7 +248,7 @@ class Spider(BaseSpider):
         return {'class': classes, 'filters': filters}
 
     def homeVideoContent(self):
-        html = self._page(HOST + '/zh/')
+        html = self._page(HOST + '/')
         return {'list': self._cards(html)}
 
     def categoryContent(self, tid, pg, filter, extend):
@@ -259,21 +258,15 @@ class Spider(BaseSpider):
         sort = str(ext.get('sort') or '').strip()
 
         if tid == '__home':
-            url = HOST + '/zh/' if page == 1 else HOST + '/zh/page/%d/' % page
+            url = HOST + '/' if page == 1 else HOST + '/page/%d/' % page
         elif tid == '__popular':
-            url = (HOST + '/zh/popular/' if page == 1
-                   else HOST + '/zh/popular/page/%d/' % page)
+            url = (HOST + '/popular/' if page == 1
+                   else HOST + '/popular/page/%d/' % page)
         else:
-            # 严格根据你提供的网站结构匹配链接：
-            # 厂牌：https://supjav.com/zh/category/maker/prestige
-            # 分类：https://supjav.com/zh/tag/solowork
-            if tid == 'tag':
-                base = HOST + '/zh/tag'
-            elif tid == 'maker':
-                base = HOST + '/zh/category/maker'
+            if tid in ['tag', 'maker']:
+                base = HOST + '/' + tid
             else:
-                base = HOST + '/zh/category/' + tid
-            
+                base = HOST + '/category/' + tid
             url = base + ('/' if page == 1 else '/page/%d/' % page)
             if sort:
                 url += '?sort=' + urllib.parse.quote(sort)
@@ -291,7 +284,7 @@ class Spider(BaseSpider):
     def searchContent(self, key, quick, pg="1"):
         page = max(1, int(pg or 1))
         kw = urllib.parse.quote(str(key))
-        url = (HOST + '/zh/?s=' + kw) if page == 1 else (HOST + '/zh/page/%d/?s=%s' % (page, kw))
+        url = (HOST + '/?s=' + kw) if page == 1 else (HOST + '/page/%d/?s=%s' % (page, kw))
         html = self._page(url)
         items = self._cards(html)
         return {
@@ -308,18 +301,12 @@ class Spider(BaseSpider):
         durl = HOST + '/' + vid + '.html'
         html = self._page(durl)
 
-        raw_title = ''
+        title = ''
         tm = re.search(r'<h1[^>]*>(.*?)</h1>', html, re.S)
         if tm:
-            raw_title = re.sub(r'<[^>]+>', '', tm.group(1))
-            raw_title = (raw_title.replace('&amp;', '&').replace('&#8217;', "'")
-                         .replace('&quot;', '"').replace('&#8211;', '-')).strip()
-
-        # 提取番号
-        code = ''
-        cm = re.search(r'\b([A-Z]{2,6}-?\d{2,6}|FC2PPV[\s-]?\d{5,8})\b', raw_title, re.I)
-        if cm:
-            code = cm.group(1).upper()
+            title = re.sub(r'<[^>]+>', '', tm.group(1))
+            title = (title.replace('&amp;', '&').replace('&#8217;', "'")
+                     .replace('&#8211;', '-')).strip()
 
         pic = ''
         pm = re.search(r'background-image:\s*url\((https://img\.supjav\.com/[^)]+)\)', html)
@@ -340,22 +327,22 @@ class Spider(BaseSpider):
         if vm:
             views = vm.group(1).strip()
 
-        # 提取 Maker (厂牌) - 兼容 /maker/ 或 /category/maker/ 路径
+        # 微调：精准匹配 SupJav 详情页的 Maker (厂牌) 结构
         maker = ''
-        mm_match = re.search(r'href="[^"]+/(?:category/)?maker/([^"/]+)[^"]*"[^>]*>([^<]+)</a>', html)
+        mm_match = re.search(r'maker/([^"/]+)["\'][^>]*>([^<]+)</a>', html)
         if mm_match:
             maker = mm_match.group(2).strip()
 
-        # 提取 Cast (演员)
+        # 微调：精准匹配 SupJav 详情页的 Cast (演员) 结构
         actors = []
-        for _, name in re.findall(r'href="[^"]+/actress/([^"/]+)[^"]*"[^>]*>([^<]+)</a>', html):
+        for _, name in re.findall(r'actress/([^"/]+)["\'][^>]*>([^<]+)</a>', html):
             clean_name = name.strip()
             if clean_name and clean_name not in actors:
                 actors.append(clean_name)
 
-        # 提取 Tag (分类/标签)
+        # 微调：精准匹配 SupJav 详情页的 Tag (分类) 结构
         tags = []
-        for _, name in re.findall(r'href="[^"]+/tag/([^"/]+)[^"]*"[^>]*>([^<]+)</a>', html):
+        for _, name in re.findall(r'tag/([^"/]+)["\'][^>]*>([^<]+)</a>', html):
             clean_tag = name.strip()
             if clean_tag and clean_tag not in tags and clean_tag not in actors:
                 tags.append(clean_tag)
@@ -375,30 +362,19 @@ class Spider(BaseSpider):
         froms = [p[0] for p in pairs]
         urls = [p[1] for p in pairs]
 
-        # 清洗简介标题：去掉前缀（如 无码破解、Reducing Mosaic、Chinese Subtitles 等）
-        cleaned_title = raw_title
-        for prefix_pat in [
-            r'^(?:无码破解|破解|Reducing Mosaic|Chinese Subtitles|中文字幕|有码|无码)\s*[-:]?\s*',
-            r'^(?:Censored|Uncensored|Amateur)\s*[-:]?\s*'
-        ]:
-            cleaned_title = re.sub(prefix_pat, '', cleaned_title, flags=re.I).strip()
-
-        # 组装简介：展示清理后的标题、maker、cast、tag，并在下方列出用于搜索的番号
-        content_lines = [f"标题: {cleaned_title}"]
+        # 组装详情页信息（无站源、无地区，包含 title, maker, cast, tag）
+        content_lines = [f"标题: {title}"]
         if maker:
-            content_lines.append(f"Maker: {maker}")
+            content_lines.append(f"maker: {maker}")
         if actors:
-            content_lines.append(f"Cast: {', '.join(actors)}")
+            content_lines.append(f"cast: {', '.join(actors)}")
         if tags:
-            content_lines.append(f"Tag: {', '.join(tags[:15])}")
-        if code:
-            content_lines.append(f"搜索番号: {code}")
-            
+            content_lines.append(f"tag: {', '.join(tags[:15])}")
         content = '\n'.join(content_lines)
 
         vod = {
             'vod_id': vid,
-            'vod_name': code if code else (cleaned_title or ('SupJav ' + vid)),
+            'vod_name': title or ('SupJav ' + vid),
             'vod_pic': pic,
             'vod_actor': ' / '.join(actors) if actors else '未知',
             'vod_remarks': views,
