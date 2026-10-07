@@ -9,7 +9,7 @@
   "style": {
     "type": "rect",
     "ratio": 1.78
-  },
+  }
 },
     {
       "key": "UVOD",
