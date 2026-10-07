@@ -4,7 +4,7 @@
 SupJav TVBox 爬虫 (type=3 Python spider)
 ================================================================
 适用环境: Google TV / Android TVBox App
-功能重点: 适配 TVBox 原生 ExoPlayer 播放内核，解决 TS PNG 伪装头与 IP Token 绑定的问题。
+功能重点: 适配 TVBox 原生 ExoPlayer 播放内核，恢复厂牌专区，支持标签(分类)专区及数量排序，标签视频列表支持名称与观看数排序，支持简体中文请求。
 """
 import re
 import json
@@ -38,9 +38,12 @@ SJ_HLS_API = PROXY_BASE + '/sj_hls?u='
 SJ_IMG_API = PROXY_BASE + '/sj_img?u='
 LK_BASE = 'https://lk1.supremejav.com/supjav.php'
 
+# 完整恢复厂牌专区与分类(Tag)专区入口分类
 CATS = [
     ('__home', '最新'),
     ('__popular', '热门'),
+    ('__makers', '厂牌专区'),
+    ('__categories', '分类专区'),
     ('censored-jav', '有码 Censored'),
     ('uncensored-jav', '无码 Uncensored'),
     ('amateur', '素人 Amateur'),
@@ -61,6 +64,12 @@ SORTS = [
      'value': [{'n': '最新', 'v': ''}, {'n': '最多观看', 'v': 'views'}]},
 ]
 
+# 标签/分类专属视频列表的排序选项 (支持名称和观看数)
+TAG_SORTS = [
+    {'key': 'sort', 'name': '排序',
+     'value': [{'n': '最新', 'v': ''}, {'n': '名称', 'v': 'name'}, {'n': '最多观看', 'v': 'views'}]},
+]
+
 
 class Spider(BaseSpider):
 
@@ -75,7 +84,10 @@ class Spider(BaseSpider):
         if requests is not None:
             try:
                 self._sess = requests.Session()
-                self._sess.headers.update({'User-Agent': UA})
+                self._sess.headers.update({
+                    'User-Agent': UA,
+                    'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'
+                })
             except Exception:
                 self._sess = None
 
@@ -96,7 +108,10 @@ class Spider(BaseSpider):
 
     # ---------------- 网络层 ----------------
     def _get(self, url, referer='', timeout=30):
-        headers = {'User-Agent': UA}
+        headers = {
+            'User-Agent': UA,
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8'
+        }
         if referer:
             headers['Referer'] = referer
 
@@ -190,11 +205,58 @@ class Spider(BaseSpider):
             cm = re.search(r'\b([A-Z]{2,6}-?\d{2,6}|FC2PPV[\s-]?\d{5,8})\b', title)
             if cm:
                 code = cm.group(1)
+
+            date_m = re.search(r'(\d{4}[-/年]\d{1,2}[-/月]\d{1,2})', b)
+            date_str = date_m.group(1) if date_m else ''
+
+            remarks = f"{code} | {date_str}" if date_str and code else (code or date_str)
+
             out.append({
                 'vod_id': vid,
                 'vod_name': title[:90],
                 'vod_pic': pic,
-                'vod_remarks': code,
+                'vod_remarks': remarks,
+                'vod_time': date_str,
+            })
+        return out
+
+    @staticmethod
+    def _makers(html):
+        out, seen = [], set()
+        matches = re.findall(r'href="' + re.escape(HOST) + r'/maker/([^"/]+)"[^>]*>([^<]+)</a>\s*(?:\((\d+)\))?', html)
+        for slug, name, count in matches:
+            if slug in seen:
+                continue
+            seen.add(slug)
+            name = name.strip()
+            if not name:
+                continue
+            cnt_str = f"视频: {count}" if count else ""
+            out.append({
+                'vod_id': 'maker/' + slug,
+                'vod_name': name,
+                'vod_pic': 'https://img.freepik.com/free-vector/cute-dolphin-swimming-cartoon-vector-icon-illustration-animal-nature-icon-isolated-flat-vector_138676-12582.jpg',
+                'vod_remarks': cnt_str,
+            })
+        return out
+
+    @staticmethod
+    def _tags(html):
+        out, seen = [], set()
+        matches = re.findall(r'href="' + re.escape(HOST) + r'/tag/([^"/]+)"[^>]*>([^<]+)</a>\s*(?:\((\d+)\))?', html)
+        for slug, name, count in matches:
+            if slug in seen:
+                continue
+            seen.add(slug)
+            name = name.strip()
+            if not name:
+                continue
+            cnt_str = f"视频: {count}" if count else ""
+            out.append({
+                'vod_id': 'tag/' + slug,
+                'vod_name': name,
+                'vod_pic': 'https://img.freepik.com/free-vector/cute-dolphin-swimming-cartoon-vector-icon-illustration-animal-nature-icon-isolated-flat-vector_138676-12582.jpg',
+                'vod_remarks': cnt_str,
             })
         return out
 
@@ -238,6 +300,8 @@ class Spider(BaseSpider):
         for cid, _ in CATS:
             if not cid.startswith('__'):
                 filters[cid] = SORTS
+            elif cid == '__categories':
+                filters[cid] = TAG_SORTS
         return {'class': classes, 'filters': filters}
 
     def homeVideoContent(self):
@@ -255,6 +319,35 @@ class Spider(BaseSpider):
         elif tid == '__popular':
             url = (HOST + '/popular/' if page == 1
                    else HOST + '/popular/page/%d/' % page)
+        elif tid == '__makers':
+            url = HOST + '/maker/' if page == 1 else HOST + '/maker/page/%d/' % page
+            url += '?sort=quantity'
+            html = self._page(url)
+            items = self._makers(html)
+            return {
+                'page': page,
+                'pagecount': self._pagecount(html, page),
+                'limit': len(items) or 24,
+                'total': len(items),
+                'list': items,
+            }
+        elif tid == '__categories':
+            url = HOST + '/tag/' if page == 1 else HOST + '/tag/page/%d/' % page
+            url += '?sort=quantity'
+            html = self._page(url)
+            items = self._tags(html)
+            return {
+                'page': page,
+                'pagecount': self._pagecount(html, page),
+                'limit': len(items) or 24,
+                'total': len(items),
+                'list': items,
+            }
+        elif tid.startswith('maker/') or tid.startswith('tag/'):
+            base = HOST + '/' + tid
+            url = base + ('/' if page == 1 else '/page/%d/' % page)
+            if sort:
+                url += '?sort=' + urllib.parse.quote(sort)
         else:
             base = HOST + '/category/' + tid
             url = base + ('/' if page == 1 else '/page/%d/' % page)
@@ -317,30 +410,31 @@ class Spider(BaseSpider):
         if vm:
             views = vm.group(1).strip()
 
+        actors = []
+        for _, act in re.findall(r'href="' + re.escape(HOST) + r'/actress/([^"/]+)', html):
+            a_name = act.replace('-', ' ').strip().title()
+            if a_name and a_name not in actors:
+                actors.append(a_name)
+
         tags = []
-        for _kind, slug in re.findall(r'href="' + re.escape(HOST) + r'/(tag|actress)/([^"/]+)', html):
-            s = slug.replace('-', ' ').strip()
-            if s and s not in tags:
-                tags.append(s)
+        for _, tag in re.findall(r'href="' + re.escape(HOST) + r'/(tag|category)/([^"/]+)', html):
+            t_name = tag.replace('-', ' ').strip()
+            if t_name and t_name not in tags:
+                tags.append(t_name)
+
         year = ''
         ym = re.search(r'/images/(\d{4})/', html)
         if ym:
             year = ym.group(1)
 
         links = re.findall(r'data-link="([0-9a-f]{40,})"', html)
-        names = re.findall(r'data-link="[0-9a-f]{40,}"[^>]*>([^<]{1,12})<', html)
         pairs = []
         for i, lk in enumerate(links):
-            nm = names[i].strip() if i < len(names) else ('线路%d' % (i + 1))
-            pairs.append((nm, '正片$%s|%s' % (vid, lk)))
+            line_name = f'线路{i + 1}'
+            pairs.append((line_name, '正片$%s|%s' % (vid, lk)))
 
-        def _rank(nm):
-            u = nm.strip().upper()
-            return LINE_ORDER.get(u, 50)
-
-        pairs.sort(key=lambda x: _rank(x[0]))
-        froms = [p[0] for p in pairs]
-        urls = [p[1] for p in pairs]
+        froms = ['在线播放']
+        urls = ['$$$'.join([p[1] for p in pairs])] if pairs else [('正片$%s|' % vid)]
 
         content = title
         if tags:
@@ -352,9 +446,11 @@ class Spider(BaseSpider):
             'vod_pic': pic,
             'vod_year': year,
             'vod_remarks': views,
+            'vod_actor': ' / '.join(actors),
+            'vod_class': ' / '.join(tags),
             'vod_content': content[:600],
-            'vod_play_from': '$$$'.join(froms) if froms else 'SupJav',
-            'vod_play_url': '$$$'.join(urls) if urls else ('正片$%s|' % vid),
+            'vod_play_from': '$$$'.join(froms),
+            'vod_play_url': '$$$'.join(urls),
         }
         return {'list': [vod]}
 
@@ -395,19 +491,16 @@ class Spider(BaseSpider):
         if not s2:
             return '', ''
 
-        # 1. 尝试直接抽取标准 m3u8
         hits = re.findall(r'https?://[^\s"\'<>\\]+?\.m3u8[^\s"\'<>\\]*', s2)
         if hits:
             return hits[0].replace('\\/', '/'), ''
 
-        # 2. Packer 解包还原
         if 'eval(function(p,a,c,k,e' in s2:
             dec = self._unpack(s2)
             hits = re.findall(r'https?://[^\s"\'<>\\]+?\.m3u8[^\s"\'<>\\]*', dec)
             if hits:
                 return hits[0].replace('\\/', '/'), ''
 
-        # 3. iframe 嵌套层识别提取
         iframes = re.findall(r'<iframe[^>]+src=["\']([^"\']+)["\']', s2, re.I)
         for ifr in iframes:
             if ifr.startswith('//'):
@@ -418,7 +511,6 @@ class Spider(BaseSpider):
                 if m3 or mp4:
                     return m3, mp4
 
-        # 4. Streamtape 提取逻辑
         em = re.search(r'https?://streamtape\.com/e/([A-Za-z0-9]+)', s2)
         if em:
             eurl = 'https://streamtape.com/e/%s/' % em.group(1)
@@ -426,7 +518,7 @@ class Spider(BaseSpider):
             for pat in (r"innerHTML\s*=\s*'([^']+)'\s*\+\s*\('([^']+)'\)"
                         r"\.substring\((\d+)\)",
                         r'innerHTML\s*=\s*"([^"]+)"\s*\+\s*\("([^"]+)"\)'
-                        r'\.substring\((\d+)\)'):
+                        r"\.substring\((\d+)\)"):
                 mm = re.search(pat, page or '')
                 if not mm:
                     continue
@@ -437,7 +529,6 @@ class Spider(BaseSpider):
                     link += ('&dl=1' if '?' in link else '?dl=1')
                 return '', link
 
-        # 5. VOE 解密提取
         tgt = re.findall(r"window\.location\.href\s*=\s*'([^']+)'", s2)
         tgt += re.findall(r'https?://[a-z0-9.-]+/e/[a-z0-9]{8,}', s2)
         if tgt:
@@ -468,7 +559,6 @@ class Spider(BaseSpider):
         if cached:
             return cached
 
-        # Step 1: supjav.php?l=<hex>
         s1_url = LK_BASE + '?l=' + lk
         s1 = self._stream(s1_url, referer=detail)
         
@@ -478,7 +568,6 @@ class Spider(BaseSpider):
         else:
             olid = lk[::-1]
 
-        # Step 2: supjav.php?c=<reversed>
         s2 = self._stream(LK_BASE + '?c=' + olid, referer=s1_url)
         if not s2:
             return fail
@@ -501,13 +590,10 @@ class Spider(BaseSpider):
 
         m3u8 = m3u8.replace('\\/', '/').replace('&amp;', '&')
 
-        # TVBox/ExoPlayer 专项兼容路由：
         low = m3u8.lower()
         if 'turbosplayer' in low or 'turboviplay' in low:
-            # 1. 针对伪装 PNG 头的线路，强制走服务端 sj_hls 剥头并转换为标准 TS 流给 TVBox
             play = SJ_HLS_API + urllib.parse.quote(m3u8, safe='')
         else:
-            # 2. 针对普通 M3U8 (FST / Premilkyway)，统一走 stream 代理转流，解决客户端 IP 绑定的 403 问题
             play = STREAM_API + urllib.parse.quote(m3u8, safe='')
 
         res = {
