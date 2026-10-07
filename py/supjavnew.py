@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 ==================================================
-@Spider Name : SupJav (Final Polish v5)
+@Spider Name : SupJav (Final Polish v6)
 @Description : TVBox/CatVod SupJav Spider Plugin
 ==================================================
 """
@@ -347,7 +347,7 @@ class Spider(BaseSpider):
         tags = []
         for _, name in re.findall(r'href="[^"]*/tag/([^"/]+)[^"]*"[^>]*>([^<]+)</a>', html):
             clean_tag = name.strip()
-            if clean_tag and clean_tag not in tags and clean_tag not in actors:
+            if clean_tag and clean_tag not in tags and clean_tag not in actors and clean_tag != maker:
                 tags.append(clean_tag)
 
         links = re.findall(r'data-link="([0-9a-f]{40,})"', html)
@@ -365,24 +365,32 @@ class Spider(BaseSpider):
         froms = [p[0] for p in pairs]
         urls = [p[1] for p in pairs]
 
-        # 组装简介：充分利用版面，展示 title, maker, cast, tag, code
-        content_lines = [f"Title: {title}"]
+        # 组装简介：不显示 "Title:" 前缀，只显示纯标题内容，后面按顺序跟 maker、cast、tag
+        content_lines = []
+        if title:
+            content_lines.append(title)
         if maker:
             content_lines.append(f"maker: {maker}")
         if actors:
             content_lines.append(f"cast: {', '.join(actors)}")
         if tags:
             content_lines.append(f"tag: {', '.join(tags[:15])}")
-        if code:
-            content_lines.append(f"search code: {code}")
         content = '\n'.join(content_lines)
+
+        # 将 maker, cast, tag 组合填入 vod_actor，以便在 TVBox 界面中能够直接点击进行搜索
+        searchable_list = []
+        if maker:
+            searchable_list.append(maker)
+        searchable_list.extend(actors)
+        searchable_list.extend(tags[:10])
+        actor_str = ' / '.join(searchable_list) if searchable_list else ''
 
         vod = {
             'vod_id': vid,
             'vod_name': code if code else (title or ('SupJav ' + vid)),
             'vod_pic': pic,
-            'vod_actor': ' / '.join(actors) if actors else '未知',
-            'vod_remarks': '',  # 不显示 views
+            'vod_actor': actor_str,  # 让 maker、cast、tag 都能在演员位展示并触发搜索
+            'vod_remarks': '',       # 隐藏 views
             'vod_content': content[:800],
             'vod_play_from': '$$$'.join(froms) if froms else 'SupJav',
             'vod_play_url': '$$$'.join(urls) if urls else ('正片$%s|' % vid),
