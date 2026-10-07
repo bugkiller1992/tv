@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 ==================================================
-@Spider Name : SupJav (Fixed & Optimized)
+@Spider Name : SupJav (Fixed & Optimized v3)
 @Description : TVBox/CatVod SupJav Spider Plugin
 ==================================================
 """
@@ -38,7 +38,7 @@ SJ_HLS_API = PROXY_BASE + '/sj_hls?u='
 SJ_IMG_API = PROXY_BASE + '/sj_img?u='
 LK_BASE = 'https://lk1.supremejav.com/supjav.php'
 
-# 新增了 厂牌、分类，并保持原有卡片
+# 结合站点实际结构调整分类卡片（使用 /zh/ 简体中文前缀与正确的 tag/maker 路径）
 CATS = [
     ('__home', '最新'),
     ('__popular', '热门'),
@@ -47,8 +47,8 @@ CATS = [
     ('amateur', '素人 Amateur'),
     ('chinese-subtitles', '中文字幕 Chn Sub'),
     ('reducing-mosaic', '破解 Reducing Mosaic'),
-    ('makers', '厂牌 Makers'),
-    ('genres', '分类 Genres'),
+    ('maker', '厂牌 Maker'),
+    ('tag', '分类 Tag'),
 ]
 
 LINE_ORDER = {
@@ -161,11 +161,13 @@ class Spider(BaseSpider):
     def _cards(html):
         out, seen = [], set()
         blocks = re.split(r'<div class="post">', html)[1:]
+        if not blocks:
+            blocks = re.split(r'<div class="item">', html)[1:]
         for b in blocks:
             m = re.search(r'href="' + re.escape(HOST) + r'/(\d+)\.html"', b)
             if not m:
-                # 兼容 makers / genres 列表页面的链接结构
-                m = re.search(r'href="' + re.escape(HOST) + r'/([^"/]+)/?"', b)
+                # 兼容 tag、maker 或其他列表页面的链接结构
+                m = re.search(r'href="' + re.escape(HOST) + r'/(?:tag|maker|category|actress)/([^"/]+)/?"', b)
             if not m:
                 continue
             vid = m.group(1)
@@ -248,7 +250,7 @@ class Spider(BaseSpider):
         return {'class': classes, 'filters': filters}
 
     def homeVideoContent(self):
-        html = self._page(HOST + '/')
+        html = self._page(HOST + '/zh/')
         return {'list': self._cards(html)}
 
     def categoryContent(self, tid, pg, filter, extend):
@@ -258,16 +260,16 @@ class Spider(BaseSpider):
         sort = str(ext.get('sort') or '').strip()
 
         if tid == '__home':
-            url = HOST + '/' if page == 1 else HOST + '/page/%d/' % page
+            url = HOST + '/zh/' if page == 1 else HOST + '/zh/page/%d/' % page
         elif tid == '__popular':
-            url = (HOST + '/popular/' if page == 1
-                   else HOST + '/popular/page/%d/' % page)
+            url = (HOST + '/zh/popular/' if page == 1
+                   else HOST + '/zh/popular/page/%d/' % page)
         else:
-            # 兼容 makers 和 genres 路径
-            if tid in ['makers', 'genres']:
-                base = HOST + '/' + tid
+            # 针对 tag、maker 等特殊路径进行精准构造
+            if tid in ['tag', 'maker']:
+                base = HOST + '/zh/' + tid
             else:
-                base = HOST + '/category/' + tid
+                base = HOST + '/zh/category/' + tid
             url = base + ('/' if page == 1 else '/page/%d/' % page)
             if sort:
                 url += '?sort=' + urllib.parse.quote(sort)
@@ -285,7 +287,7 @@ class Spider(BaseSpider):
     def searchContent(self, key, quick, pg="1"):
         page = max(1, int(pg or 1))
         kw = urllib.parse.quote(str(key))
-        url = (HOST + '/?s=' + kw) if page == 1 else (HOST + '/page/%d/?s=%s' % (page, kw))
+        url = (HOST + '/zh/?s=' + kw) if page == 1 else (HOST + '/zh/page/%d/?s=%s' % (page, kw))
         html = self._page(url)
         items = self._cards(html)
         return {
@@ -328,18 +330,25 @@ class Spider(BaseSpider):
         if vm:
             views = vm.group(1).strip()
 
-        # 提取演员与分类标签，并格式化为简体中文展示
+        # 提取 Maker (厂牌)
+        maker = ''
+        mm_match = re.search(r'href="' + re.escape(HOST) + r'/maker/([^"/]+)[^"]*"[^>]*>([^<]+)</a>', html)
+        if mm_match:
+            maker = mm_match.group(2).strip()
+
+        # 提取 Cast (演员)
         actors = []
         for _, name in re.findall(r'href="' + re.escape(HOST) + r'/actress/([^"/]+)[^"]*"[^>]*>([^<]+)</a>', html):
             clean_name = name.strip()
             if clean_name and clean_name not in actors:
                 actors.append(clean_name)
 
-        genres = []
-        for _, name in re.findall(r'href="' + re.escape(HOST) + r'/(?:category|tag|genres)/([^"/]+)[^"]*"[^>]*>([^<]+)</a>', html):
-            clean_genre = name.strip()
-            if clean_genre and clean_genre not in genres and clean_genre not in actors:
-                genres.append(clean_genre)
+        # 提取 Tag (分类/标签)
+        tags = []
+        for _, name in re.findall(r'href="' + re.escape(HOST) + r'/tag/([^"/]+)[^"]*"[^>]*>([^<]+)</a>', html):
+            clean_tag = name.strip()
+            if clean_tag and clean_tag not in tags and clean_tag not in actors:
+                tags.append(clean_tag)
 
         links = re.findall(r'data-link="([0-9a-f]{40,})"', html)
         names = re.findall(r'data-link="[0-9a-f]{40,}"[^>]*>([^<]{1,12})<', html)
@@ -356,12 +365,14 @@ class Spider(BaseSpider):
         froms = [p[0] for p in pairs]
         urls = [p[1] for p in pairs]
 
-        # 拼接简体中文简介、演员和分类标签信息
-        content_lines = [f"名称: {title}"]
+        # 组装简体中文简介：严格包含 title, maker, cast, tag
+        content_lines = [f"标题: {title}"]
+        if maker:
+            content_lines.append(f"厂牌(Maker): {maker}")
         if actors:
-            content_lines.append(f"演员: {', '.join(actors)}")
-        if genres:
-            content_lines.append(f"分类/标签: {', '.join(genres[:15])}")
+            content_lines.append(f"演员(Cast): {', '.join(actors)}")
+        if tags:
+            content_lines.append(f"标签(Tag): {', '.join(tags[:15])}")
         content = '\n'.join(content_lines)
 
         vod = {
@@ -369,7 +380,6 @@ class Spider(BaseSpider):
             'vod_name': title or ('SupJav ' + vid),
             'vod_pic': pic,
             'vod_actor': ' / '.join(actors) if actors else '未知',
-            'vod_area': '日本',
             'vod_remarks': views,
             'vod_content': content[:800],
             'vod_play_from': '$$$'.join(froms) if froms else 'SupJav',
