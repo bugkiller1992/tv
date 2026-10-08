@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 """
 ==================================================
-@Spider Name : SupJav (JS-Standard Stable v11)
-@Description : TVBox/CatVod SupJav Spider Plugin
+@Spider Name : SupJav (JS-Standard Final Pro v13 - Searchable Tags)
+@Description : TVBox/CatVod SupJav Spider with fully searchable Tags/Makers/Cast in Actor field
 ==================================================
 """
 import re
@@ -46,8 +46,10 @@ CATS = [
     ('amateur', '素人 Amateur'),
     ('chinese-subtitles', '中文字幕 Chn Sub'),
     ('reducing-mosaic', '破解 Reducing Mosaic'),
-    ('maker', '厂牌 Maker'),
-    ('tag', '分类 Tag'),
+    ('english-subtitles', '英文字幕 Eng Sub'),
+    ('maker_index', '厂牌 Maker'),
+    ('tag_index', '分类 Tag/Genre'),
+    ('actress_index', '演员 Cast'),
 ]
 
 LINE_ORDER = {
@@ -96,14 +98,10 @@ class Spider(BaseSpider):
         return bool(url and re.search(r'\.(m3u8|mp4|ts)(\?|$)', url, re.I))
 
     # ---------------- 网络层 ----------------
-    def _get(self, url, referer='', timeout=30):
-        headers = {'User-Agent': UA}
-        if referer:
-            headers['Referer'] = referer
-
+    def _get(self, url, timeout=60):
         if self._sess is not None:
             try:
-                r = self._sess.get(url, headers=headers, timeout=timeout, verify=False)
+                r = self._sess.get(url, timeout=timeout, verify=False)
                 if r.status_code == 200:
                     return r.text
             except Exception:
@@ -112,7 +110,7 @@ class Spider(BaseSpider):
             ctx = ssl.create_default_context()
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
-            req = urllib.request.Request(url, headers=headers)
+            req = urllib.request.Request(url, headers={'User-Agent': UA})
             return urllib.request.urlopen(req, timeout=timeout, context=ctx).read().decode('utf-8', 'replace')
         except Exception:
             return ''
@@ -120,26 +118,23 @@ class Spider(BaseSpider):
     def _page(self, url, retries=2):
         api = FS_PAGE_API + urllib.parse.quote(url, safe='')
         for _ in range(max(1, retries)):
-            html = self._get(api, timeout=20)
-            if html and 'Just a moment' not in html and len(html) > 1000:
+            html = self._get(api, timeout=220)
+            if html and 'Just a moment' not in html and len(html) > 3000:
                 return html
         api2 = PAGE_API + urllib.parse.quote(url, safe='')
-        html = self._get(api2, timeout=30)
-        if html and 'Just a moment' not in html and len(html) > 1000:
+        html = self._get(api2, timeout=90)
+        if html and 'Just a moment' not in html and len(html) > 3000:
             return html
-        return self._get(url, referer=HOST + '/', timeout=15)
+        return ''
 
-    def _stream(self, url, referer='', timeout=30):
+    def _stream(self, url, referer='', timeout=90):
         api = STREAM_API + urllib.parse.quote(url, safe='')
         if referer:
             api += '&r=' + urllib.parse.quote(referer, safe='')
-        res = self._get(api, timeout=timeout)
-        if not res:
-            res = self._get(url, referer=referer, timeout=timeout)
-        return res
+        return self._get(api, timeout=timeout)
 
     _PLAY_CACHE = {}
-    _PLAY_TTL = 300
+    _PLAY_TTL = 90
 
     @classmethod
     def _play_cache_get(cls, key):
@@ -154,27 +149,25 @@ class Spider(BaseSpider):
     @classmethod
     def _play_cache_put(cls, key, val):
         cls._PLAY_CACHE[key] = (time.time(), val)
+        if len(cls._PLAY_CACHE) > 60:
+            for k in sorted(cls._PLAY_CACHE,
+                            key=lambda x: cls._PLAY_CACHE[x][0])[:20]:
+                cls._PLAY_CACHE.pop(k, None)
 
     # ---------------- 解析层 ----------------
     @staticmethod
     def _cards(html):
         out, seen = [], set()
         blocks = re.split(r'<div class="post">', html)[1:]
-        if not blocks:
-            blocks = re.split(r'<div class="item">', html)[1:]
         for b in blocks:
             m = re.search(r'href="' + re.escape(HOST) + r'/(\d+)\.html"', b)
-            if not m:
-                m = re.search(r'href="' + re.escape(HOST) + r'/(?:tag|maker|category|actress)/([^"/]+)/?"', b)
             if not m:
                 continue
             vid = m.group(1)
             if vid in seen:
                 continue
             t = re.search(r'title="([^"]+)"', b)
-            if not t:
-                t = re.search(r'>([^<]+)</a>', b)
-            title = t.group(1) if t else vid
+            title = t.group(1) if t else ''
             title = (title.replace('&amp;', '&').replace('&#8217;', "'")
                      .replace('&quot;', '"').replace('&#8211;', '-')).strip()
             if not title:
@@ -202,6 +195,25 @@ class Spider(BaseSpider):
                 'vod_name': title[:90],
                 'vod_pic': pic,
                 'vod_remarks': code,
+            })
+        return out
+
+    @staticmethod
+    def _index_cards(html, kind):
+        out, seen = [], set()
+        pattern = r'href="' + re.escape(HOST) + r'/' + kind + r'/([^"/]+)/?"'
+        matches = re.findall(pattern, html, re.I)
+        for slug in matches:
+            slug = slug.strip()
+            if not slug or slug in seen:
+                continue
+            seen.add(slug)
+            name = slug.replace('-', ' ').title()
+            out.append({
+                'vod_id': kind + '$' + slug,
+                'vod_name': name,
+                'vod_pic': '',
+                'vod_remarks': kind.upper(),
             })
         return out
 
@@ -243,7 +255,7 @@ class Spider(BaseSpider):
         classes = [{'type_id': cid, 'type_name': cname} for cid, cname in CATS]
         filters = {}
         for cid, _ in CATS:
-            if not cid.startswith('__'):
+            if not cid.startswith('__') and not cid.endswith('_index'):
                 filters[cid] = SORTS
         return {'class': classes, 'filters': filters}
 
@@ -257,22 +269,51 @@ class Spider(BaseSpider):
         ext = extend if isinstance(extend, dict) else {}
         sort = str(ext.get('sort') or '').strip()
 
+        if tid in ['maker_index', 'tag_index', 'actress_index']:
+            kind = tid.replace('_index', '')
+            url = HOST + '/' + kind + '/'
+            html = self._page(url)
+            items = self._index_cards(html, kind)
+            return {
+                'page': 1,
+                'pagecount': 1,
+                'limit': len(items) or 100,
+                'total': len(items),
+                'list': items,
+            }
+
+        if '$' in tid:
+            kind, _, slug = tid.partition('$')
+            url = HOST + '/' + kind + '/' + slug + '/' + ('page/%d/' % page if page > 1 else '')
+            html = self._page(url)
+            items = self._cards(html)
+            return {
+                'page': page,
+                'pagecount': self._pagecount(html, page),
+                'limit': len(items) or 24,
+                'total': len(items),
+                'list': items,
+            }
+
         if tid == '__home':
             url = HOST + '/' if page == 1 else HOST + '/page/%d/' % page
         elif tid == '__popular':
             url = (HOST + '/popular/' if page == 1
                    else HOST + '/popular/page/%d/' % page)
         else:
-            if tid in ['tag', 'maker']:
-                base = HOST + '/' + tid
-            else:
-                base = HOST + '/category/' + tid
+            base = HOST + '/category/' + tid
             url = base + ('/' if page == 1 else '/page/%d/' % page)
             if sort:
                 url += '?sort=' + urllib.parse.quote(sort)
 
         html = self._page(url)
         items = self._cards(html)
+        if not items:
+            for _ in range(2):
+                html = self._page(url, retries=2)
+                items = self._cards(html)
+                if items:
+                    break
         return {
             'page': page,
             'pagecount': self._pagecount(html, page),
@@ -283,10 +324,21 @@ class Spider(BaseSpider):
 
     def searchContent(self, key, quick, pg="1"):
         page = max(1, int(pg or 1))
-        kw = urllib.parse.quote(str(key))
-        url = (HOST + '/?s=' + kw) if page == 1 else (HOST + '/page/%d/?s=%s' % (page, kw))
+        kw = str(key).strip()
+        slug = kw.lower().replace(' ', '-')
+        
+        url = (HOST + '/?s=' + urllib.parse.quote(kw)) if page == 1 else (HOST + '/page/%d/?s=%s' % (page, urllib.parse.quote(kw)))
         html = self._page(url)
         items = self._cards(html)
+        
+        if not items and page == 1:
+            for kind in ['maker', 'tag', 'actress']:
+                sub_url = HOST + '/' + kind + '/' + slug + '/'
+                sub_html = self._page(sub_url)
+                items = self._cards(sub_html)
+                if items:
+                    break
+
         return {
             'page': page,
             'pagecount': self._pagecount(html, page),
@@ -306,17 +358,7 @@ class Spider(BaseSpider):
         if tm:
             title = re.sub(r'<[^>]+>', '', tm.group(1))
             title = (title.replace('&amp;', '&').replace('&#8217;', "'")
-                     .replace('&quot;', '"').replace('&#8211;', '-')).strip()
-
-        # 提取番号 (Code)
-        code = ''
-        cm = re.search(r'\b([A-Z]{2,6}-?\d{2,6}|FC2PPV[\s-]?\d{5,8})\b', title, re.I)
-        if cm:
-            code = cm.group(1).upper()
-        if not code:
-            cm2 = re.search(r'\b([A-Z]{2,6}-?\d{2,6}|FC2PPV[\s-]?\d{5,8})\b', html, re.I)
-            if cm2:
-                code = cm2.group(1).upper()
+                     .replace('&#8211;', '-')).strip()
 
         pic = ''
         pm = re.search(r'background-image:\s*url\((https://img\.supjav\.com/[^)]+)\)', html)
@@ -332,7 +374,17 @@ class Spider(BaseSpider):
         if pic.startswith('http'):
             pic = SJ_IMG_API + urllib.parse.quote(pic, safe='')
 
-        # 精准提取：Maker, Cast, Tag
+        views = ''
+        vm = re.search(r'<span class="views">([^<]+)</span>', html)
+        if vm:
+            views = vm.group(1).strip()
+
+        code = ''
+        cm = re.search(r'\b([A-Z]{2,6}-?\d{2,6}|FC2PPV[\s-]?\d{5,8})\b', title, re.I)
+        if cm:
+            code = cm.group(1).upper()
+
+        # 提取 Maker, Cast(Actress), Tag(Genre)
         makers = []
         for _, name in re.findall(r'href="[^"]*/maker/([^"/]+)[^"]*"[^>]*>([^<]+)</a>', html, re.I):
             clean = name.strip().replace('&amp;', '&')
@@ -355,11 +407,34 @@ class Spider(BaseSpider):
             if clean and clean not in tags and clean not in actors and clean not in makers:
                 tags.append(clean)
 
+        # 核心：将 Maker、Cast、Tag 全部整合进 vod_actor（TVBox 客户端会对该字段所有词条生成可点击超链接并支持一键搜索）
+        all_searchable = []
+        for m in makers:
+            if m not in all_searchable: all_searchable.append(m)
+        for a in actors:
+            if a not in all_searchable: all_searchable.append(a)
+        for t in tags:
+            if t not in all_searchable: all_searchable.append(t)
+
+        year = ''
+        ym = re.search(r'/images/(\d{4})/', html)
+        if ym:
+            year = ym.group(1)
+
+        # 优化简介内容，让标签在文字中整洁显示
+        content_lines = [title]
+        if makers:
+            content_lines.append('厂牌: ' + ', '.join(makers))
+        if actors:
+            content_lines.append('演员: ' + ', '.join(actors))
+        if tags:
+            content_lines.append('标签: ' + ', '.join(tags))
+
         links = re.findall(r'data-link="([0-9a-f]{40,})"', html)
-        names = re.findall(r'data-link="[0-9a-f]{40,}"[^>]*>([^<]+)<', html)
+        names = re.findall(r'data-link="[0-9a-f]{40,}"[^>]*>([^<]{1,12})<', html)
         pairs = []
         for i, lk in enumerate(links):
-            nm = names[i].strip() if i < len(names) and names[i].strip() else ('线路%d' % (i + 1))
+            nm = names[i].strip() if i < len(names) else ('线路%d' % (i + 1))
             pairs.append((nm, '正片$%s|%s' % (vid, lk)))
 
         def _rank(nm):
@@ -372,13 +447,14 @@ class Spider(BaseSpider):
 
         vod = {
             'vod_id': vid,
-            'vod_name': code if code else title,                  # 标题：只显示番号，无法提取则显示原标题
+            'vod_name': code if code else title,
             'vod_pic': pic,
-            'vod_director': ' / '.join(makers) if makers else '',   # 显示 Maker 厂牌（支持点击搜索）
-            'vod_actor': ' / '.join(actors) if actors else '',       # 显示 Cast 演员（支持点击搜索）
-            'vod_area': ' / '.join(tags[:10]) if tags else '',       # 显示 Tag 标签（支持点击搜索）
-            'vod_remarks': code,
-            'vod_content': title,                                    # 简介：显示原标题内容
+            'vod_year': year,
+            'vod_remarks': views or code,
+            'vod_director': '', 
+            'vod_actor': ' / '.join(all_searchable),  # 关键：全部放入演员栏，TVBox 自动支持点击与全网搜索
+            'vod_area': '',
+            'vod_content': '\n'.join(content_lines),   # 简介中带文字说明
             'vod_play_from': '$$$'.join(froms) if froms else 'SupJav',
             'vod_play_url': '$$$'.join(urls) if urls else ('正片$%s|' % vid),
         }
@@ -418,28 +494,15 @@ class Spider(BaseSpider):
             return {}
 
     def _extract_stream(self, s2, ref):
-        if not s2:
-            return '', ''
-
-        hits = re.findall(r'https?://[^\s"\'<>\\]+?\.m3u8[^\s"\'<>\\]*', s2)
+        hits = re.findall(r'https?://[^\s"\'<>\\]+\.m3u8[^\s"\'<>\\]*', s2)
         if hits:
-            return hits[0].replace('\\/', '/'), ''
+            return hits[0], ''
 
         if 'eval(function(p,a,c,k,e' in s2:
             dec = self._unpack(s2)
-            hits = re.findall(r'https?://[^\s"\'<>\\]+?\.m3u8[^\s"\'<>\\]*', dec)
+            hits = re.findall(r'https?://[^\s"\'<>\\]+\.m3u8[^\s"\'<>\\]*', dec)
             if hits:
-                return hits[0].replace('\\/', '/'), ''
-
-        iframes = re.findall(r'<iframe[^>]+src=["\']([^"\']+)["\']', s2, re.I)
-        for ifr in iframes:
-            if ifr.startswith('//'):
-                ifr = 'https:' + ifr
-            if ifr.startswith('http'):
-                iframe_html = self._stream(ifr, referer=ref)
-                m3, mp4 = self._extract_stream(iframe_html, ifr)
-                if m3 or mp4:
-                    return m3, mp4
+                return hits[0], ''
 
         em = re.search(r'https?://streamtape\.com/e/([A-Za-z0-9]+)', s2)
         if em:
@@ -491,14 +554,14 @@ class Spider(BaseSpider):
 
         s1_url = LK_BASE + '?l=' + lk
         s1 = self._stream(s1_url, referer=detail)
-        
+        olid = ''
         om = re.search(r"var\s+OLID\s*=\s*'([0-9a-f]{40,})'", s1 or '')
         if om:
             olid = om.group(1)[::-1]
         else:
             olid = lk[::-1]
 
-        s2 = self._stream(LK_BASE + '?c=' + olid, referer=s1_url)
+        s2 = self._stream(LK_BASE + '?c=' +olid, referer=s1_url)
         if not s2:
             return fail
 
@@ -531,7 +594,7 @@ class Spider(BaseSpider):
             'playUrl': '',
             'url': play,
             'jx': 0,
-            'header': {'User-Agent': UA, 'Referer': HOST + '/'},
+            'header': {'User-Agent': UA},
         }
         self._play_cache_put(lk, res)
         return res
