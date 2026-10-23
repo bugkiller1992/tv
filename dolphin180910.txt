@@ -36,6 +36,13 @@
       "api": "./py/黄豆短剧.py"
     }
   ],
+    {
+      "key": "HochuTV",
+      "name": "🐬HochuTV",
+      "type": 3,
+      "api": "./py/HochuTVxxx直播.py"
+    }
+  ],
   "parses": [
     {
       "name": "盘古",
