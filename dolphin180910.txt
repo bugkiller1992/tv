@@ -34,7 +34,7 @@
       "name": "🐬[成人短剧]黄豆短剧.py 有🔞",
       "type": 3,
       "api": "./py/黄豆短剧.py"
-    }
+    },
     {
       "key": "HochuTV",
       "name": "🐬HochuTV",
