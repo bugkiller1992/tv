@@ -35,7 +35,6 @@
       "type": 3,
       "api": "./py/黄豆短剧.py"
     }
-  ],
     {
       "key": "HochuTV",
       "name": "🐬HochuTV",
