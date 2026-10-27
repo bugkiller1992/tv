@@ -40,6 +40,12 @@
       "name": "🐬HochuTV",
       "type": 3,
       "api": "./py/HochuTVxxx直播.py"
+    },
+    {
+      "key": "X影视",
+      "name": "伦理X影视",
+      "type": 3,
+      "api": "./py/伦理X影视.py"
     }
   ],
   "parses": [
