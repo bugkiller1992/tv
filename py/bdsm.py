@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-BDSM.DO TVBox Python 爬虫接口 (Type 3) - 完美修复分类与播放版
+BDSM.DO TVBox Python 爬虫接口 (Type 3) - 完美终极修复版
 ================================================================
 数据源: https://bdsm.do/
 """
@@ -88,8 +88,10 @@ class Spider(BaseSpider):
 
     def categoryContent(self, tid, pg, filter, extend):
         page = max(1, int(pg or 1))
+        
+        # 精准匹配站点的真实路由路径
         if tid == 'categories':
-            url = HOST + '/categories/'
+            url = HOST + '/categories/' if page == 1 else f"{HOST}/categories/{page}/"
         elif tid == 'latest-updates':
             url = HOST + '/' if page == 1 else f"{HOST}/latest-updates/{page}/"
         elif tid == 'most-popular':
@@ -136,20 +138,6 @@ class Spider(BaseSpider):
         if pm:
             pic = pm.group(1)
 
-        # 深度提取播放源（支持直链或 iframe 嵌套播放页面）
-        play_url = durl
-        vm = re.search(r'contentUrl["\']?\s*:\s*["\'](https?://[^\s"\']+)', html)
-        if vm:
-            play_url = vm.group(1)
-        else:
-            um = re.search(r'(https?://[^\s"\'<>]+\.(?:m3u8|mp4)[^\s"\'<>]*)', html)
-            if um:
-                play_url = um.group(1)
-            else:
-                im = re.search(r'<iframe[^>]+src=["\'](https?://[^"\']+)["\']', html)
-                if im:
-                    play_url = im.group(1)
-
         vod = {
             'vod_id': vid,
             'vod_name': title or 'BDSM Video',
@@ -157,30 +145,42 @@ class Spider(BaseSpider):
             'vod_remarks': '',
             'vod_content': title,
             'vod_play_from': 'BDSM.DO',
-            'vod_play_url': f'播放正片${play_url}',
+            'vod_play_url': f'播放正片${durl}',
         }
         return {'list': [vod]}
 
     def playerContent(self, flag, id, vipFlags):
         url = str(id)
-        # 如果链接不是纯视频格式，尝试二次跟进网页提取真实的 m3u8/mp4 轨道
-        if not self.isVideoFormat(url) and HOST in url:
-            html = self._get(url)
+        final_url = url
+        
+        # 递归抓取播放源逻辑：处理详情页 -> 提取 iframe 或 视频直链
+        html = self._get(url)
+        if html:
+            # 1. 尝试直接从网页中抓取 m3u8 或 mp4 直链
             um = re.search(r'(https?://[^\s"\'<>]+\.(?:m3u8|mp4)[^\s"\'<>]*)', html)
             if um:
-                url = um.group(1)
+                final_url = um.group(1)
             else:
-                im = re.search(r'<iframe[^>]+src=["\'](https?://[^"\']+)["\']', html)
-                if im:
-                    sub_html = self._get(im.group(1))
-                    sub_um = re.search(r'(https?://[^\s"\'<>]+\.(?:m3u8|mp4)[^\s"\'<>]*)', sub_html)
-                    if sub_um:
-                        url = sub_um.group(1)
+                # 2. 尝试从 json 或 contentUrl 中提取
+                vm = re.search(r'contentUrl["\']?\s*:\s*["\'](https?://[^\s"\']+)', html)
+                if vm:
+                    final_url = vm.group(1)
+                else:
+                    # 3. 尝试跟进 iframe 嵌套播放页
+                    im = re.search(r'<iframe[^>]+src=["\'](https?://[^"\']+)["\']', html)
+                    if im:
+                        iframe_url = im.group(1)
+                        sub_html = self._get(iframe_url)
+                        sub_um = re.search(r'(https?://[^\s"\'<>]+\.(?:m3u8|mp4)[^\s"\'<>]*)', sub_html)
+                        if sub_um:
+                            final_url = sub_um.group(1)
+                        else:
+                            final_url = iframe_url
 
         return {
             'parse': 0,
             'playUrl': '',
-            'url': url,
+            'url': final_url,
             'jx': 0,
             'header': {'User-Agent': UA, 'Referer': HOST + '/'}
         }
@@ -190,7 +190,7 @@ class Spider(BaseSpider):
     def _cards(html):
         out, seen = [], set()
         blocks = []
-        for pat in [r'<article[^>]*>.*?</article>', r'<div[^>]*class="[^"]*item[^"]*"[^>]*>.*?</div>\s*</div>', r'<div[^>]*class="[^"]*thumb[^"]*"[^>]*>.*?</div>']:
+        for pat in [r'<article[^>]*>.*?</article>', r'<div[^>]*class="[^"]*item[^"]*"[^>]*>.*?</div>\s*</div>', r'<div[^>]*class="[^"]*thumb[^"]*"[^>]*>.*?</div>', r'<div[^>]*class="[^"]*video[^"]*"[^>]*>.*?</div>']:
             found = re.findall(pat, html, re.S)
             if found:
                 blocks = found
