@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-BDSM.DO TVBox Python 爬虫接口 (Type 3)
+BDSM.DO TVBox Python 爬虫接口 (Type 3) - 修复重写版
 ================================================================
 数据源: https://bdsm.do/
-功能: 首页分类、列表翻页、视频搜索、详情解析与播放直链提取
+说明: 增强了卡片与分类的解析容错，确保在 TVBox 中能正常加载列表。
 """
 import re
 import json
@@ -37,7 +37,7 @@ class Spider(BaseSpider):
         if requests is not None:
             try:
                 self._sess = requests.Session()
-                self._sess.headers.update({'User-Agent': UA})
+                self._sess.headers.update({'User-Agent': UA, 'Referer': HOST + '/'})
             except Exception:
                 pass
 
@@ -69,7 +69,7 @@ class Spider(BaseSpider):
             ctx = ssl.create_default_context()
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
-            req = urllib.request.Request(url, headers={'User-Agent': UA})
+            req = urllib.request.Request(url, headers={'User-Agent': UA, 'Referer': HOST + '/'})
             return urllib.request.urlopen(req, timeout=timeout, context=ctx).read().decode('utf-8', 'replace')
         except Exception:
             return ''
@@ -99,7 +99,7 @@ class Spider(BaseSpider):
         items = self._cards(html)
         return {
             'page': page,
-            'pagecount': 100,
+            'pagecount': 50,
             'limit': len(items) or 24,
             'total': len(items),
             'list': items,
@@ -121,7 +121,7 @@ class Spider(BaseSpider):
 
     def detailContent(self, ids):
         vid = str(ids[0] if isinstance(ids, list) else ids)
-        durl = HOST + '/' + vid if not vid.startswith('http') else vid
+        durl = HOST + '/' + vid.lstrip('/') if not vid.startswith('http') else vid
         html = self._get(durl)
 
         title = ''
@@ -134,7 +134,7 @@ class Spider(BaseSpider):
         if pm:
             pic = pm.group(1)
 
-        # 尝试提取页面中的 video 播放地址或嵌入 m3u8/mp4 链接
+        # 提取播放地址 (m3u8 / mp4 / embed)
         play_url = ''
         vm = re.search(r'contentUrl["\']?\s*:\s*["\'](https?://[^\s"\']+)', html)
         if vm:
@@ -157,13 +157,11 @@ class Spider(BaseSpider):
 
     def playerContent(self, flag, id, vipFlags):
         url = str(id)
-        # 如果从详情页抓出的不是直链，二次请求抓取真实视频源
         if not self.isVideoFormat(url):
             html = self._get(url)
             um = re.search(r'(https?://[^\s"\'<>]+\.(?:m3u8|mp4)[^\s"\'<>]*)', html)
             if um:
                 url = um.group(1)
-
         return {
             'parse': 0,
             'playUrl': '',
@@ -172,39 +170,69 @@ class Spider(BaseSpider):
             'header': {'User-Agent': UA, 'Referer': HOST + '/'}
         }
 
-    # ---------------- 辅助解析 HTML 卡片 ----------------
+    # ---------------- 强兼容卡片解析引擎 ----------------
     @staticmethod
     def _cards(html):
         out, seen = [], set()
-        blocks = re.findall(r'<div[^>]*class="[^"]*item[^"]*"[^>]*>(.*?)</div>\s*</div>', html, re.S)
+        
+        # 多重策略切片：兼容 article、div.item、div.thumb 等各种主流布局
+        blocks = []
+        for pat in [r'<article[^>]*>.*?</article>', r'<div[^>]*class="[^"]*item[^"]*"[^>]*>.*?</div>\s*</div>', r'<div[^>]*class="[^"]*thumb[^"]*"[^>]*>.*?</div>']:
+            found = re.findall(pat, html, re.S)
+            if found:
+                blocks = found
+                break
+        
+        # 如果常规标签没切出来，退化为按行或按链接块匹配
         if not blocks:
-            blocks = re.split(r'<article[^>]*>', html)[1:]
+            blocks = re.split(r'<div[^>]*class="[^"]*col[^"]*"[^>]*>', html)
 
         for b in blocks:
-            m = re.search(r'href="([^"]*/video/[^"]+|[^"]*/\d+/[^"]+)"', b)
+            # 提取详情链接
+            m = re.search(r'href="([^"]*/video/[^"]+|[^"]*/\d+/[^"]+|[^"]+\.html)"', b)
             if not m:
                 m = re.search(r'href="([^"]+)"', b)
             if not m:
                 continue
+            
             link = m.group(1)
-            link_path = link.replace(HOST + '/', '').lstrip('/')
+            if 'http' in link:
+                if HOST not in link:
+                    continue
+                link_path = link.replace(HOST + '/', '').lstrip('/')
+            else:
+                link_path = link.lstrip('/')
 
-            if link_path in seen or not link_path:
+            if not link_path or link_path in seen or 'tag' in link_path or 'category' in link_path and len(link_path) < 10:
                 continue
             seen.add(link_path)
 
-            t = re.search(r'title="([^"]+)"', b) or re.search(r'alt="([^"]+)"', b)
-            title = t.group(1).strip() if t else 'BDSM Video'
+            # 提取标题
+            t = re.search(r'title="([^"]+)"', b) or re.search(r'alt="([^"]+)"', b) or re.search(r'<img[^>]*alt="([^"]+)"', b)
+            title = t.group(1).strip() if t else ''
+            if not title:
+                tm = re.search(r'class="[^"]*title[^"]*">([^<]+)<', b)
+                if tm:
+                    title = tm.group(1).strip()
+            if not title:
+                title = 'BDSM Video'
 
+            # 提取封面图 (支持 data-original 懒加载或 src)
             pic = ''
-            pm = re.search(r'src="([^"]+)"', b)
-            if pm:
-                pic = pm.group(1)
+            for pm_pat in [r'data-original="([^"]+)"', r'data-src="([^"]+)"', r'src="([^"]+)"']:
+                pm = re.search(pm_pat, b)
+                if pm:
+                    pic = pm.group(1)
+                    if 'http' in pic or pic.startswith('//'):
+                        break
             if pic.startswith('//'):
                 pic = 'https:' + pic
+            elif pic and not pic.startswith('http'):
+                pic = HOST + '/' + pic.lstrip('/')
 
+            # 提取时长等备注
             dur = ''
-            dm = re.search(r'class="[^"]*duration[^"]*"[^>]*>([^<]+)<', b)
+            dm = re.search(r'class="[^"]*duration[^"]*"[^>]*>([^<]+)<', b) or re.search(r'class="[^"]*time[^"]*"[^>]*>([^<]+)<', b)
             if dm:
                 dur = dm.group(1).strip()
 
@@ -215,3 +243,4 @@ class Spider(BaseSpider):
                 'vod_remarks': dur,
             })
         return out
+        
