@@ -1,6 +1,12 @@
 {
   "logo": "https://img.freepik.com/free-vector/cute-dolphin-swimming-cartoon-vector-icon-illustration-animal-nature-icon-isolated-flat-vector_138676-12582.jpg?semt=ais_hybrid&w=740&q=80",
   "sites": [
+     {
+      "key": "supjavblog",
+      "name": "supjavblog｜🔞",
+      "type": 3,
+      "api": "./py/SupJavBlog.py"
+    },
     {
       "key": "nyk",
       "name": "🐬女优库｜🔞",
@@ -15,19 +21,19 @@
     },
     {
       "key": "pd4k",
-      "name": "🐬片帝4K｜🔞",
+      "name": "🐬片帝4K",
       "type": 3,
       "api": "./py/片帝4K.py"
     },
     {
       "key": "sz4k",
-      "name": "🐬山楂4K｜🔞",
+      "name": "🐬山楂4K",
       "type": 3,
       "api": "./py/山楂4K.py"
     },
     {
       "key": "yt4k",
-      "name": "🐬影探4K｜🔞",
+      "name": "🐬影探4K",
       "type": 3,
       "api": "./py/影探4K.py"
     },
